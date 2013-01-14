@@ -53,7 +53,7 @@ AR = ar
 ARFLAGS = cru
 libordacity_a_AR = $(AR) $(ARFLAGS)
 libordacity_a_LIBADD =
-am_libordacity_a_OBJECTS = ClusterConfig.$(OBJEXT) Cluster.$(OBJEXT) \
+am_libordacity_a_OBJECTS = Cluster.$(OBJEXT) \
 	queue_lock_mutex.$(OBJEXT)
 libordacity_a_OBJECTS = $(am_libordacity_a_OBJECTS)
 DEFAULT_INCLUDES = -I.
@@ -157,7 +157,7 @@ top_srcdir = ..
 AM_CFLAGS = --pedantic -Wall -std=c99 -O2
 AM_LDFLAGS = -lm
 lib_LIBRARIES = libordacity.a
-libordacity_a_SOURCES = ClusterConfig.c Cluster.c queue_lock_mutex.c
+libordacity_a_SOURCES = Cluster.c queue_lock_mutex.c
 include_HEADERS = ClusterConfig.h ClusterListener.h
 all: all-am
 
@@ -233,7 +233,6 @@ distclean-compile:
 	-rm -f *.tab.c
 
 include ./$(DEPDIR)/Cluster.Po
-include ./$(DEPDIR)/ClusterConfig.Po
 include ./$(DEPDIR)/queue_lock_mutex.Po
 
 .c.o:
