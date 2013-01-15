@@ -12,12 +12,14 @@
 pthread_mutex_t state_lock;
 pthread_mutex_t initialized_lock;
 pthread_mutex_t connected_lock;
+pthread_mutex_t watches_registered_lock;
 
 pthread_t claimer_thread;
 
 int node_state = NODE_STATE_FRESH;
 int initialized = 0;
 int connected = 0;
+int watches_registered = 0;
 
 ClusterConfig *cluster_config;
 ClusterListener *cluster_listener;
@@ -65,6 +67,11 @@ Cluster *create_cluster(char *name, ClusterListener *listener, ClusterConfig *co
     return NULL;
   }
 
+  if (pthread_mutex_init(&watches_registered_lock, NULL) != 0)
+  {
+    printf("\n mutex init failed\n");
+    return NULL;
+  }
   //queue = ALLOC_QUEUE_ROOT();
   //struct queue_head *item = malloc(sizeof(struct queue_head));
   //INIT_QUEUE_HEAD(item);
@@ -165,6 +172,18 @@ static void on_connect()
 
   join_cluster();
   cluster_listener->on_join(zh);
+
+  pthread_mutex_lock(&watches_registered_lock);
+  if(watches_registered == 0) {
+    watches_registered = 1;
+  }
+  pthread_mutex_unlock(&watches_registered_lock);
+  register_watchers();
+}
+
+static void register_watchers() 
+{
+   //TODO Register znode watchers
 }
 
 static void join_cluster() 

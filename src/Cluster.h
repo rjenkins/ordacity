@@ -33,6 +33,7 @@ static void cluster_connect();
 static int start_claimer();
 static void *claim();
 static void force_shutdown();
+static void register_watchers();
 static void on_connect();
 static int is_previous_zk_active();
 static void my_strings_completion(int rc, const struct String_vector *strings,
