@@ -26,6 +26,11 @@ struct queue_root *queue;
 
 Cluster *c;
 
+static clientid_t myid;
+
+#define _LL_CAST_ (long long)
+
+
 /**
  * create_cluster - Our public function for instantiating a new cluster instance
  * param name - name of our cluster
@@ -103,6 +108,11 @@ static void connection_watcher(zhandle_t *zzh, int type, int state, const char *
 
     if(state == ZOO_CONNECTED_STATE) {
       printf("\nZookeeper session estabslished!\n");
+      const clientid_t *id = zoo_client_id(zzh);
+      if(myid.client_id == 0 || myid.client_id != id->client_id) {
+        myid = *id;
+        fprintf(stderr, "Got a new session id: 0x%llx\n", _LL_CAST_ myid.client_id);
+      }
       pthread_mutex_lock(&connected_lock);
       connected = 1;      
       pthread_mutex_unlock(&connected_lock);
@@ -150,8 +160,25 @@ static void on_connect()
   printf("Connected to Zookeeper (ID: %s).\n", cluster_config->node_id);
 
   ensure_ordacity_paths();
+
+  join_cluster();
 }
 
+static void join_cluster() 
+{
+
+  const int n = snprintf(NULL, 0, "%lu", myid.client_id);
+  char buf[n+1];
+  int c = snprintf(buf, n+1, "%lu", myid.client_id);
+
+  char buffer[1024];
+  strcpy(buffer, "{\"state\": \"Fresh\", \"connectionID\":");
+  strcat(buffer, buf);
+  strcat(buffer, "}");
+
+  printf("BUFFER IS %s\n", buffer);
+
+}
 
 static void ensure_ordacity_paths() {
   char *root_path = "/";

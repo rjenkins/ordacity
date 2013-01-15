@@ -28,6 +28,7 @@ Cluster *create_cluster(char *name, ClusterListener *cluster_listener, ClusterCo
 static void join();
 static void ensure_ordacity_paths();
 static void ensure_path();
+static void join_cluster();
 static void cluster_connect();
 static int start_claimer();
 static void *claim();
