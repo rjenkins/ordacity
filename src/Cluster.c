@@ -169,15 +169,34 @@ static void join_cluster()
 
   const int n = snprintf(NULL, 0, "%lu", myid.client_id);
   char buf[n+1];
-  int c = snprintf(buf, n+1, "%lu", myid.client_id);
+  snprintf(buf, n+1, "%lu", myid.client_id);
 
   char buffer[1024];
+  memset(buffer, 0, 1024);
   strcpy(buffer, "{\"state\": \"Fresh\", \"connectionID\":");
   strcat(buffer, buf);
   strcat(buffer, "}");
 
   printf("BUFFER IS %s\n", buffer);
 
+  char *node_name = strdup(c->name);
+
+  char path_buffer[1024];
+  strcpy(path_buffer, "/");
+  strcat(path_buffer, node_name);
+  strcat(path_buffer, "/nodes/");
+  strcat(path_buffer, cluster_config->node_id);
+
+  while(TRUE) {
+    if(zoo_create(zh, path_buffer, buffer, sizeof(buffer), 
+        &ZOO_OPEN_ACL_UNSAFE, ZOO_EPHEMERAL, NULL, 0) == 0) {
+      return;
+    } else {
+      printf("Unable to register with Zookeeper on launch. ");
+      printf("Is %s already running on this host? Retrying in 1 second...", c->name);
+      sleep(1);
+    }
+  }
 }
 
 static void ensure_ordacity_paths() {
