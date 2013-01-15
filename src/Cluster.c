@@ -20,6 +20,7 @@ int initialized = 0;
 int connected = 0;
 
 ClusterConfig *cluster_config;
+ClusterListener *cluster_listener;
 
 static zhandle_t *zh;
 struct queue_root *queue;
@@ -40,10 +41,11 @@ static clientid_t myid;
  * return a reference to a Cluster
  *
  */
-Cluster *create_cluster(char *name, ClusterListener *cluster_listener, ClusterConfig *config)
+Cluster *create_cluster(char *name, ClusterListener *listener, ClusterConfig *config)
 {
 
   cluster_config = config;
+  cluster_listener = listener;
 
   if (pthread_mutex_init(&state_lock, NULL) != 0)
   {
@@ -162,6 +164,7 @@ static void on_connect()
   ensure_ordacity_paths();
 
   join_cluster();
+  cluster_listener->on_join(zh);
 }
 
 static void join_cluster() 
