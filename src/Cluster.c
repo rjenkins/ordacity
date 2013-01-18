@@ -43,8 +43,10 @@ static clientid_t myid;
  * return a reference to a Cluster
  *
  */
-Cluster *create_cluster(char *name, ClusterListener *listener, ClusterConfig *config)
+Cluster *create_cluster(const char *name, ClusterListener *listener, ClusterConfig *config)
 {
+
+  printf("hosts is: %d\n", strlen(config->hosts));
 
   cluster_config = config;
   cluster_listener = listener;
@@ -165,6 +167,7 @@ static void on_connect()
        ensure_clean_startup();
     }
   }
+  pthread_mutex_unlock(&state_lock);
 
   printf("Connected to Zookeeper (ID: %s).\n", cluster_config->node_id);
 
@@ -181,9 +184,28 @@ static void on_connect()
   register_watchers();
 }
 
+void nodes_watcher(void* watcherCtx, stat_completion_t completion, const void *data)
+{
+
+printf("hello\n");
+}
+
 static void register_watchers() 
 {
-   //TODO Register znode watchers
+  //TODO move these paths into a helper function 
+  char buffer[1024];
+  memset(buffer, 0, 1024);
+  strcpy(buffer, "/");
+  strncat(buffer, c->name, strlen(c->name));
+  strncat(buffer, "/nodes", strlen("/nodes"));
+
+  printf("buffer is %s\n", buffer);
+
+  int nodes_ret_val = zoo_awexists(zh, &buffer,
+       nodes_watcher, NULL,
+       my_stat_completion, my_data_completion);
+
+  //printf("Nodes_ret %d\n", nodes_ret_val);
 }
 
 static void join_cluster() 
@@ -201,21 +223,22 @@ static void join_cluster()
 
   printf("BUFFER IS %s\n", buffer);
 
-  char *node_name = strdup(c->name);
+  char *node_name = c->name;
 
   char path_buffer[1024];
   strcpy(path_buffer, "/");
   strcat(path_buffer, node_name);
   strcat(path_buffer, "/nodes/");
-  strcat(path_buffer, cluster_config->node_id);
+  strncat(path_buffer, cluster_config->node_id, strlen(cluster_config->node_id));
 
   while(TRUE) {
-    if(zoo_create(zh, path_buffer, buffer, sizeof(buffer), 
-        &ZOO_OPEN_ACL_UNSAFE, ZOO_EPHEMERAL, NULL, 0) == 0) {
+    int zoo_create_ret_val = zoo_create(zh, path_buffer, buffer, sizeof(buffer), 
+        &ZOO_OPEN_ACL_UNSAFE, ZOO_EPHEMERAL, NULL, 0);
+    if(zoo_create_ret_val == 0) {
       return;
     } else {
-      printf("Unable to register with Zookeeper on launch. ");
-      printf("Is %s already running on this host? Retrying in 1 second...", c->name);
+      printf("Unable to register with Zookeeper on launch. \n");
+      printf("Is %s already running on this host? Retrying in 1 second...\n", c->name);
       sleep(1);
     }
   }
@@ -223,7 +246,7 @@ static void join_cluster()
 
 static void ensure_ordacity_paths() {
   char *root_path = "/";
-  char *root = strdup(c->name);
+  char *root = c->name;
 
   char buffer[1024];
 
@@ -297,11 +320,12 @@ static void ensure_clean_startup() {}
 
 static int is_previous_zk_active() 
 {
-  char * nodeName = strdup(c->name);
+  char nodeName[1024];
+  strcat(nodeName, c->name);
   strcat(nodeName, "/nodes/");
   strcat(nodeName, cluster_config->node_id);
   printf("nodeName is: %s\n", nodeName);
-  zoo_aget(zh, nodeName, 0, my_data_completion, strdup(nodeName)); 
+  zoo_aget(zh, nodeName, 0, my_data_completion, nodeName); 
   return 0;
 }
 
@@ -321,7 +345,7 @@ static void cluster_connect()
     if(start_claimer() != 0) 
       exit(ERROR_STARTING_CLAIMER);
 
-    zh = zookeeper_init(strdup(cluster_config->hosts), connection_watcher, 30000,0, 0, 0);
+    zh = zookeeper_init(cluster_config->hosts, connection_watcher, 30000,0, 0, 0);
   }
   pthread_mutex_unlock(&initialized_lock);
 }
@@ -382,3 +406,8 @@ void my_data_completion(int rc, const char *value, int value_len,
   fprintf(stderr, "\nStat:\n");
   free((void*)data);
 }
+
+void my_stat_completion(int rc, const struct Stat *stat, const void *data) {
+  fprintf(stderr, "%s: rc = %d Stat:\n", (char*)data, rc);
+}
+

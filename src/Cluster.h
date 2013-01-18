@@ -19,7 +19,7 @@ typedef struct {
     void (*rebalance)();
 } Cluster;
 
-Cluster *create_cluster(char *name, ClusterListener *cluster_listener, ClusterConfig* config);
+Cluster *create_cluster(const char *name, ClusterListener *cluster_listener, ClusterConfig* config);
 
 /**
  * private functions
@@ -42,6 +42,7 @@ static void my_strings_completion(int rc, const struct String_vector *strings,
 static void my_data_completion(int rc, const char *value, int value_len,
       const struct Stat *stat, const void *data);
 
+static void my_stat_completion(int rc, const struct Stat *stat, const void *data);
 static void ensure_clean_startup();
 
 
