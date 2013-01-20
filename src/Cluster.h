@@ -12,11 +12,11 @@
 // ERROR CODES
 #define ERROR_STARTING_CLAIMER 10
 
-typedef struct {
-    char *name;
+typedef struct Cluster {
+    const char *name;
     void (*join)();
-    void (*shutdown)();
-    void (*rebalance)();
+//    void (*shutdown)();
+//    void (*rebalance)();
 } Cluster;
 
 Cluster *create_cluster(const char *name, ClusterListener *cluster_listener, ClusterConfig* config);
