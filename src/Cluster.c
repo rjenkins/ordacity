@@ -4,6 +4,7 @@
 #include <string.h>
 #include "queue.h"
 #include "Cluster.h"
+#include "NodeInfo.h"
 
 /**
  * Lock for our node_state, initialization state and zookeeper connection state
@@ -31,8 +32,12 @@ Cluster *c;
 
 static clientid_t myid;
 
-#define _LL_CAST_ (long long)
+// Cluster, node and work unit state
+struct hashtable* nodes_table;
 
+void *context;
+
+#define _LL_CAST_ (long long)
 
 /**
  * create_cluster - Our public function for instantiating a new cluster instance
@@ -45,8 +50,6 @@ static clientid_t myid;
  */
 Cluster *create_cluster(const char *name, ClusterListener *listener, ClusterConfig *config)
 {
-
-  printf("hosts is: %d\n", strlen(config->hosts));
 
   cluster_config = config;
   cluster_listener = listener;
@@ -74,9 +77,12 @@ Cluster *create_cluster(const char *name, ClusterListener *listener, ClusterConf
     printf("\n mutex init failed\n");
     return NULL;
   }
-  //queue = ALLOC_QUEUE_ROOT();
-  //struct queue_head *item = malloc(sizeof(struct queue_head));
-  //INIT_QUEUE_HEAD(item);
+
+  queue = ALLOC_QUEUE_ROOT();
+  struct queue_head *item = malloc(sizeof(struct queue_head));
+  INIT_QUEUE_HEAD(item);
+
+  nodes_table = create_hashtable(32,node_hash,node_info_equal);
 
   c = (Cluster *) malloc(sizeof(const Cluster *));
   c->name = name;
@@ -126,6 +132,7 @@ static void connection_watcher(zhandle_t *zzh, int type, int state, const char *
       }
       pthread_mutex_lock(&connected_lock);
       connected = 1;      
+      context = watcherCtx;
       pthread_mutex_unlock(&connected_lock);
 
       pthread_mutex_lock(&state_lock);
@@ -182,12 +189,37 @@ static void on_connect()
   }
   pthread_mutex_unlock(&watches_registered_lock);
   register_watchers();
+  
+  pthread_mutex_lock(&initialized_lock);
+  initialized = 1;
+  pthread_mutex_unlock(&initialized_lock);
+
 }
 
 void nodes_watcher(void* watcherCtx, stat_completion_t completion, const void *data)
 {
+  pthread_mutex_lock(&initialized_lock);
+  if(initialized == 0)
+    return;
+  pthread_mutex_unlock(&initialized_lock);
 
-printf("hello\n");
+  struct String_vector *nodes = (struct String_vector *) data;
+  for(int i=0;i<nodes->count; i++){
+    int rc = 0;
+    char nodeName[2048];
+    printf("%s", nodes->data[i]);
+  }
+
+}
+
+void verify_integrity_watcher(void *watcherCtx, stat_completion_t completion, const void *data)
+{
+
+}
+
+void handoff_results_watcher(void *watcherCtx, stat_completion_t completion, const void *data)
+{
+
 }
 
 static void register_watchers() 
@@ -201,11 +233,56 @@ static void register_watchers()
 
   printf("buffer is %s\n", buffer);
 
-  int nodes_ret_val = zoo_awexists(zh, &buffer,
-       nodes_watcher, NULL,
-       my_stat_completion, my_data_completion);
+  struct String_vector *nodes = malloc(sizeof(struct String_vector));
 
-  //printf("Nodes_ret %d\n", nodes_ret_val);
+  int nodes_ret_val = zoo_wget_children(zh, strdup(&buffer), 
+      nodes_watcher, context, &nodes);
+      //malloc(sizeof(struct String_vector)));
+
+  memset(buffer, 0, 1024);
+  strcpy(buffer, "/");
+  strncat(buffer, cluster_config->work_unit_name, strlen(cluster_config->work_unit_name));
+
+  int work_unit_ret_val = zoo_wget_children(zh, strdup(&buffer),
+      verify_integrity_watcher, NULL,
+      (struct String_vector *) malloc(sizeof(struct String_vector)));
+      
+  memset(buffer, 0, 1024);
+  strcpy(buffer, "/");
+  strncat(buffer, c->name, strlen(c->name));
+  strcat(buffer, "/claimed-");
+  strncat(buffer, cluster_config->work_unit_short_name, strlen(cluster_config->work_unit_short_name));
+
+  work_unit_ret_val = zoo_wget_children(zh, strdup(&buffer),
+      verify_integrity_watcher, NULL, 
+      (struct String_vector *) malloc(sizeof(struct String_vector)));
+
+
+  if(cluster_config->use_soft_handoff == TRUE) {
+    memset(buffer, 0, 1024);
+    strcpy(buffer, "/");
+    strncat(buffer, c->name, strlen(c->name));
+    strcat(buffer, "/handoff-requests");
+
+    int hand_off_ret_val = zoo_wget_children(zh, strdup(&buffer),
+      verify_integrity_watcher, NULL, 
+      (struct String_vector *) malloc(sizeof(struct String_vector)));
+
+    memset(buffer, 0, 1024);
+    strcpy(buffer, "/");
+    strncat(buffer, c->name, strlen(c->name));
+    strcat(buffer, "/handoff-result");
+
+    hand_off_ret_val = zoo_wget_children(zh, strdup(&buffer),
+      handoff_results_watcher, NULL, 
+      (struct String_vector *) malloc(sizeof(struct String_vector)));
+  }
+
+  if(cluster_config->use_smart_balancing == TRUE) {
+    //TODO impl smart balancing ?
+  }
+
+
 }
 
 static void join_cluster() 
@@ -309,8 +386,7 @@ static void ensure_ordacity_paths() {
 static void ensure_path(char *path) {
 
   if(zoo_exists(zh, path, 0, NULL) == ZNONODE) {
-    int retVal = zoo_create(zh, path, "",
-    1, &ZOO_OPEN_ACL_UNSAFE, 0,
+    zoo_create(zh, path, "", 1, &ZOO_OPEN_ACL_UNSAFE, 0,
     NULL, 0);
   }
 }
@@ -367,7 +443,7 @@ static void *claim() {
   printf("Claimer started\n");
   pthread_mutex_lock(&state_lock);
   while(node_state != NODE_STATE_SHUTDOWN) {
-    //struct queue_head *item = queue_get(queue);
+    struct queue_head *item = queue_get(queue);
     //printf("item is: %s\n", item);
   }
   pthread_mutex_unlock(&state_lock);
@@ -411,3 +487,21 @@ void my_stat_completion(int rc, const struct Stat *stat, const void *data) {
   fprintf(stderr, "%s: rc = %d Stat:\n", (char*)data, rc);
 }
 
+static unsigned int node_hash(void *str)
+{
+  unsigned int hash = 5381;
+  int c;
+  const char* cstr = (const char*)str;
+  while ((c = *cstr++))
+    hash = ((hash << 5) + hash) + c; /* hash * 33 + c */
+
+  return hash;
+}
+
+static int node_info_equal(void *node_info1,void *node_info2)
+{
+  struct NodeInfo * node1 = (struct NodeInfo *) node_info1;
+  struct NodeInfo * node2 = (struct NodeInfo *) node_info2;
+  return strcmp(node1->state,node2->state) ==0 &&
+    node1->connection_id == node2->connection_id;
+}

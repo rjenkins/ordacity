@@ -45,4 +45,7 @@ static void my_data_completion(int rc, const char *value, int value_len,
 static void my_stat_completion(int rc, const struct Stat *stat, const void *data);
 static void ensure_clean_startup();
 
+static unsigned int node_hash(void *str);
+static int node_info_equal(void *node_info1,void *node_info2);
+
 
