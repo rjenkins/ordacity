@@ -196,20 +196,41 @@ static void on_connect()
 
 }
 
-void nodes_watcher(void* watcherCtx, stat_completion_t completion, const void *data)
+void nodes_watcher(zhandle_t *zzh, int type, int state, const char *path, void* context)
 {
   pthread_mutex_lock(&initialized_lock);
   if(initialized == 0)
     return;
   pthread_mutex_unlock(&initialized_lock);
 
-  struct String_vector *nodes = (struct String_vector *) data;
-  for(int i=0;i<nodes->count; i++){
-    int rc = 0;
-    char nodeName[2048];
-    printf("%s", nodes->data[i]);
-  }
+  struct String_vector str;                                            
+  int rc;                                                              
+       
+  printf("The event path %s, event type %d\n", path, type);
+  if (type == ZOO_SESSION_EVENT) {                         
+    if (state == ZOO_CONNECTED_STATE) {                  
+    return;                                          
+    } else if (state == ZOO_AUTH_FAILED_STATE) {         
+      zookeeper_close(zzh);                            
+      exit(1);                                         
+    } else if (state == ZOO_EXPIRED_SESSION_STATE) {     
+      zookeeper_close(zzh);                            
+      exit(1);                                         
+    }                                                    
+  }                                                        
 
+  rc = zoo_wget_children(zh, path, nodes_watcher, context, &str);                
+  if (ZOK != rc){                                          
+    printf("Problems  %d\n", rc);                        
+  } else {                                                 
+    int i = 0;                                           
+    while (i < str.count) {                              
+      printf("Children %s\n", str.data[i++]);          
+    }                                                    
+    if (str.count) {                                     
+      deallocate_String_vector(&str);                  
+    }                                                    
+  }                         
 }
 
 void verify_integrity_watcher(void *watcherCtx, stat_completion_t completion, const void *data)
@@ -233,11 +254,12 @@ static void register_watchers()
 
   printf("buffer is %s\n", buffer);
 
-  struct String_vector *nodes = malloc(sizeof(struct String_vector));
+  struct String_vector nodes; 
 
   int nodes_ret_val = zoo_wget_children(zh, strdup(&buffer), 
       nodes_watcher, context, &nodes);
-      //malloc(sizeof(struct String_vector)));
+
+  printf("nodes_ret_val is: %d\n", nodes_ret_val); 
 
   memset(buffer, 0, 1024);
   strcpy(buffer, "/");
