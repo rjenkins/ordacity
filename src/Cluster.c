@@ -199,8 +199,11 @@ static void on_connect()
 void nodes_watcher(zhandle_t *zzh, int type, int state, const char *path, void* context)
 {
   pthread_mutex_lock(&initialized_lock);
-  if(initialized == 0)
+  if(initialized == 0) {
+    pthread_mutex_unlock(&initialized_lock);
     return;
+  }
+
   pthread_mutex_unlock(&initialized_lock);
 
   struct String_vector str;                                            
