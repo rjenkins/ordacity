@@ -28,7 +28,7 @@ ClusterListener *cluster_listener;
 static zhandle_t *zh;
 struct queue_root *queue;
 
-Cluster *c;
+Cluster *cluster;
 
 static clientid_t myid;
 
@@ -84,10 +84,10 @@ Cluster *create_cluster(const char *name, ClusterListener *listener, ClusterConf
 
   nodes_table = create_hashtable(32,node_hash,node_info_equal);
 
-  c = (Cluster *) malloc(sizeof(const Cluster *));
-  c->name = name;
-  c->join = &join;
-  return c;
+  cluster = (Cluster *) malloc(sizeof(const Cluster *));
+  cluster->name = name;
+  cluster->join = &join;
+  return cluster;
 }
 
 /**
@@ -122,45 +122,44 @@ static void join()
  */
 static void connection_watcher(zhandle_t *zzh, int type, int state, const char *path, void *watcherCtx) 
 {
+  if(state == ZOO_CONNECTED_STATE) {
+     printf("\nZookeeper session estabslished!\n");
+     const clientid_t *id = zoo_client_id(zzh);
+     if(myid.client_id == 0 || myid.client_id != id->client_id) {
+       myid = *id;
+       fprintf(stderr, "Got a new session id: 0x%llx\n", _LL_CAST_ myid.client_id);
+     }
+     pthread_mutex_lock(&connected_lock);
+     connected = 1;      
+     context = watcherCtx;
+     pthread_mutex_unlock(&connected_lock);
 
-    if(state == ZOO_CONNECTED_STATE) {
-      printf("\nZookeeper session estabslished!\n");
-      const clientid_t *id = zoo_client_id(zzh);
-      if(myid.client_id == 0 || myid.client_id != id->client_id) {
-        myid = *id;
-        fprintf(stderr, "Got a new session id: 0x%llx\n", _LL_CAST_ myid.client_id);
-      }
-      pthread_mutex_lock(&connected_lock);
-      connected = 1;      
-      context = watcherCtx;
-      pthread_mutex_unlock(&connected_lock);
+     pthread_mutex_lock(&state_lock);
+     if(node_state != NODE_STATE_SHUTDOWN) {
+       pthread_mutex_unlock(&state_lock);
+       on_connect();
+     } else {
+       printf("This node is shut down. ZK connection re-established, but not relaunching.\n");
+     }
+ } else if(state == ZOO_EXPIRED_SESSION_STATE) {
+  printf("Zookeeper session expired\n");
+  pthread_mutex_lock(&connected_lock);
+  connected = 0;      
+  pthread_mutex_unlock(&connected_lock);
+  force_shutdown();
 
-      pthread_mutex_lock(&state_lock);
-      if(node_state != NODE_STATE_SHUTDOWN) {
-        pthread_mutex_unlock(&state_lock);
-        on_connect();
-      } else {
-        printf("This node is shut down. ZK connection re-established, but not relaunching.\n");
-      }
-    } else if(state == ZOO_EXPIRED_SESSION_STATE) {
-      printf("Zookeeper session expired\n");
-      pthread_mutex_lock(&connected_lock);
-      connected = 0;      
-      pthread_mutex_unlock(&connected_lock);
-      force_shutdown();
+  // TODO look into whether we need to implement await reconnect
+  //await_reconnect();
+ } else  {
+  printf("ZooKeeper session interrupted. Shutting down and awaiting reconnect");
+  pthread_mutex_lock(&connected_lock);
+  connected = 0;      
+  pthread_mutex_unlock(&connected_lock);
 
-      // TODO look into whether we need to implement await reconnect
-      //await_reconnect();
-    } else  {
-      printf("ZooKeeper session interrupted. Shutting down and awaiting reconnect");
-      pthread_mutex_lock(&connected_lock);
-      connected = 0;      
-      pthread_mutex_unlock(&connected_lock);
-
-      // TODO look into whether we need to implement await reconnect
-      //await_reconnect();
-      //await_reconnect();
-    }
+  // TODO look into whether we need to implement await reconnect
+  //await_reconnect();
+  //await_reconnect();
+ }
 }
 
 static void on_connect() 
@@ -248,59 +247,71 @@ void handoff_results_watcher(void *watcherCtx, stat_completion_t completion, con
 
 static void register_watchers() 
 {
-  //TODO move these paths into a helper function 
-  char buffer[1024];
-  memset(buffer, 0, 1024);
-  strcpy(buffer, "/");
-  strncat(buffer, c->name, strlen(c->name));
-  strncat(buffer, "/nodes", strlen("/nodes"));
-
-  printf("buffer is %s\n", buffer);
+  char *nodes_path = malloc(snprintf(NULL, 0, "%s%s%s", "/", cluster->name, "/nodes") + 1);
+  sprintf(nodes_path, "%s%s%s", "/", cluster->name, "/nodes");
 
   struct String_vector nodes; 
 
-  int nodes_ret_val = zoo_wget_children(zh, strdup(&buffer), 
+  int nodes_ret_val = zoo_wget_children(zh, nodes_path, 
       nodes_watcher, context, &nodes);
 
-  printf("nodes_ret_val is: %d\n", nodes_ret_val); 
+  free(nodes_path);
 
-  memset(buffer, 0, 1024);
-  strcpy(buffer, "/");
-  strncat(buffer, cluster_config->work_unit_name, strlen(cluster_config->work_unit_name));
+  int i = 0;
+  while (i < nodes.count) {                              
+    printf("kids are %s\n", nodes.data[i++]);          
+    //zoo_wget(zh, const char *path,
+    //         watcher_fn watcher, void* watcherCtx,
+    //         char *buffer, int* buffer_len, struct Stat *stat);
+  }                                                    
 
-  int work_unit_ret_val = zoo_wget_children(zh, strdup(&buffer),
+  if (nodes.count) {                                     
+    deallocate_String_vector(&nodes);                  
+  }                                                    
+
+  char *work_unit_name_path = malloc(snprintf(NULL, 0, "%s%s", "/", cluster_config->work_unit_name) + 1);
+  sprintf(work_unit_name_path, "%s%s", "/", cluster_config->work_unit_name);
+
+  int work_unit_ret_val = zoo_wget_children(zh, work_unit_name_path,
       verify_integrity_watcher, NULL,
       (struct String_vector *) malloc(sizeof(struct String_vector)));
-      
-  memset(buffer, 0, 1024);
-  strcpy(buffer, "/");
-  strncat(buffer, c->name, strlen(c->name));
-  strcat(buffer, "/claimed-");
-  strncat(buffer, cluster_config->work_unit_short_name, strlen(cluster_config->work_unit_short_name));
 
-  work_unit_ret_val = zoo_wget_children(zh, strdup(&buffer),
+  free(work_unit_name_path);
+    
+  char *claimed_work_unit_path = malloc(snprintf(NULL, 0, "%s%s%s%s", "/", cluster->name, "/claimed-",
+  cluster_config->work_unit_short_name) + 1); 
+
+  sprintf(claimed_work_unit_path, "%s%s%s%s", "/", cluster->name, "/claimed-", cluster_config->
+  work_unit_short_name); 
+
+  work_unit_ret_val = zoo_wget_children(zh, claimed_work_unit_path, 
       verify_integrity_watcher, NULL, 
       (struct String_vector *) malloc(sizeof(struct String_vector)));
 
+  free(claimed_work_unit_path);
 
   if(cluster_config->use_soft_handoff == TRUE) {
-    memset(buffer, 0, 1024);
-    strcpy(buffer, "/");
-    strncat(buffer, c->name, strlen(c->name));
-    strcat(buffer, "/handoff-requests");
 
-    int hand_off_ret_val = zoo_wget_children(zh, strdup(&buffer),
+    char *handoff_requests_path = malloc(snprintf(NULL, 0, "%s%s%s", "/", 
+          cluster->name, "/handoff-requests") + 1);
+    sprintf(handoff_requests_path, "%s%s%s", "/", cluster->name, "/handoff-requests");
+
+    int hand_off_ret_val = zoo_wget_children(zh, handoff_requests_path,
       verify_integrity_watcher, NULL, 
       (struct String_vector *) malloc(sizeof(struct String_vector)));
 
-    memset(buffer, 0, 1024);
-    strcpy(buffer, "/");
-    strncat(buffer, c->name, strlen(c->name));
-    strcat(buffer, "/handoff-result");
+    free(handoff_requests_path);
 
-    hand_off_ret_val = zoo_wget_children(zh, strdup(&buffer),
+    
+    char *handoff_result_path = malloc(snprintf(NULL, 0, "%s%s%s", "/", cluster->name, "/handoff-result") + 1);
+    snprintf(handoff_result_path, "%s%s%s", "/", cluster->name, "/handoff-result");
+
+    hand_off_ret_val = zoo_wget_children(zh, handoff_result_path, 
       handoff_results_watcher, NULL, 
       (struct String_vector *) malloc(sizeof(struct String_vector)));
+
+    free(handoff_result_path);
+
   }
 
   if(cluster_config->use_smart_balancing == TRUE) {
@@ -325,7 +336,7 @@ static void join_cluster()
 
   printf("BUFFER IS %s\n", buffer);
 
-  char *node_name = c->name;
+  char *node_name = cluster->name;
 
   char path_buffer[1024];
   strcpy(path_buffer, "/");
@@ -340,7 +351,7 @@ static void join_cluster()
       return;
     } else {
       printf("Unable to register with Zookeeper on launch. \n");
-      printf("Is %s already running on this host? Retrying in 1 second...\n", c->name);
+      printf("Is %s already running on this host? Retrying in 1 second...\n", cluster->name);
       sleep(1);
     }
   }
@@ -348,7 +359,7 @@ static void join_cluster()
 
 static void ensure_ordacity_paths() {
   char *root_path = "/";
-  char *root = c->name;
+  char *root = cluster->name;
 
   char buffer[1024];
 
@@ -422,7 +433,7 @@ static void ensure_clean_startup() {}
 static int is_previous_zk_active() 
 {
   char nodeName[1024];
-  strcat(nodeName, c->name);
+  strcat(nodeName, cluster->name);
   strcat(nodeName, "/nodes/");
   strcat(nodeName, cluster_config->node_id);
   printf("nodeName is: %s\n", nodeName);
