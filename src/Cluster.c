@@ -292,19 +292,41 @@ static void register_watchers()
   int nodes_ret_val = zoo_wget_children(zh, nodes_path, 
       nodes_watcher, context, &nodes);
 
-  free(nodes_path);
-
+  
   int i = 0;
   while (i < nodes.count) {                              
-    printf("kids are %s\n", nodes.data[i++]);          
-    //zoo_wget(zh, const char *path,
-    //         watcher_fn watcher, void* watcherCtx,
-    //         char *buffer, int* buffer_len, struct Stat *stat);
+    printf("kids are %s\n", nodes.data[i]);          
+
+    char *node = nodes.data[i];
+    struct String_vector node_info; 
+
+    char *full_node_path = malloc(snprintf(NULL, 0, "%s%s%s", nodes_path, "/", node) + 1);
+    sprintf(full_node_path, "%s%s%s", nodes_path, "/", node);
+
+    char buffer[1024];
+    memset(buffer, 0, 1024);
+
+    int buflen = sizeof(buffer);
+    struct Stat stat;
+
+    printf("full node path is %s\n", full_node_path);
+
+    int get_code = zoo_get(zh, full_node_path, 0, buffer, &buflen, &stat);
+    printf("get code is %d\n", get_code);
+    printf("result is %s\n", buffer);
+    i++;
+    //int x = 0;
+    //while(x < node_info.count) {
+    //  printf("node_info is %s\n", node_info.data[x++]);
+   // }
+
   }                                                    
 
   if (nodes.count) {                                     
     deallocate_String_vector(&nodes);                  
   }                                                    
+
+  free(nodes_path);
 
   char *work_unit_name_path = malloc(snprintf(NULL, 0, "%s%s", "/", cluster_config->work_unit_name) + 1);
   sprintf(work_unit_name_path, "%s%s", "/", cluster_config->work_unit_name);
