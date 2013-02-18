@@ -2,10 +2,10 @@
 #include <stdlib.h>
 #include <pthread.h>
 #include <string.h>
-#include "queue.h"
-#include "StringSet.h"
+#include "../queue.h"
+#include "../StringSet.h"
 #include "Cluster.h"
-#include "NodeInfo.h"
+#include "../NodeInfo.h"
 
 /**
  * Lock for our node_state, initialization state and zookeeper connection state

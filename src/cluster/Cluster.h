@@ -1,5 +1,5 @@
-#include "ClusterConfig.h"
-#include "ClusterListener.h"
+#include "../ClusterConfig.h"
+#include "../ClusterListener.h"
 
 #define NODE_STATE_FRESH 0
 #define NODE_STATE_SHUTDOWN 1
