@@ -3,6 +3,7 @@
 #include <pthread.h>
 #include <string.h>
 #include "queue.h"
+#include "StringSet.h"
 #include "Cluster.h"
 #include "NodeInfo.h"
 
@@ -34,6 +35,7 @@ static clientid_t myid;
 
 // Cluster, node and work unit state
 struct hashtable* nodes_table;
+StringSet *my_work_units;
 
 void *context;
 
@@ -83,6 +85,11 @@ Cluster *create_cluster(const char *name, ClusterListener *listener, ClusterConf
   INIT_QUEUE_HEAD(item);
 
   nodes_table = create_hashtable(32,node_hash,node_info_equal);
+  my_work_units = create_string_set();
+  my_work_units->add(my_work_units, "foo");
+  my_work_units->add(my_work_units, "fa");
+  my_work_units->add(my_work_units, "fa");
+  my_work_units->add(my_work_units, "figaro");
 
   cluster = (Cluster *) malloc(sizeof(const Cluster *));
   cluster->name = name;
@@ -229,6 +236,12 @@ void nodes_watcher(zhandle_t *zzh, int type, int state, const char *path, void* 
     while (i < str.count) {                              
       printf("Children %s\n", str.data[i++]);          
     }                                                    
+
+    //
+    // Add a new item to the queue to start processing
+    struct queue_head *item = malloc(sizeof(struct queue_head));
+    queue_put(item, queue);
+
     if (str.count) {                                     
       deallocate_String_vector(&str);                  
     }                                                    
@@ -466,7 +479,7 @@ static void cluster_connect()
  * start our claimer thread
  */
 static int start_claimer() {
-   int err = pthread_create(&claimer_thread, NULL, claim, NULL);
+   int err = pthread_create(&claimer_thread, NULL, claim_run, NULL);
    if (err != 0)
     printf("\ncan't create thread :[%d]", err);
    return err;
@@ -475,16 +488,33 @@ static int start_claimer() {
 /**
  * Our claimer implemenation - waits on a blocking work queue to claim work
  */
-static void *claim() {
+static void *claim_run() {
   printf("Claimer started\n");
   pthread_mutex_lock(&state_lock);
   while(node_state != NODE_STATE_SHUTDOWN) {
-    struct queue_head *item = queue_get(queue);
-    //printf("item is: %s\n", item);
+    if(queue_get(queue) != NULL) {
+      claim_work();
+    }
+    sleep(2);
   }
   pthread_mutex_unlock(&state_lock);
   return NULL;
 }
+
+/**
+ * Our logic for claiming work 
+ */
+
+static void claim_work() {
+  pthread_mutex_lock(&state_lock);
+  pthread_mutex_lock(&connected_lock);
+  if(node_state != NODE_STATE_STARTED || connected != 1) {
+    pthread_mutex_unlock(&state_lock);
+    pthread_mutex_unlock(&connected_lock);
+    return;
+  }
+}
+
 
 /**
  * force_shutdown - handle cleaning up of balancing policy and workunit and free resources 

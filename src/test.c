@@ -14,12 +14,11 @@ int main() {
   config->hosts = "localhost:2181";
   config->work_unit_name = "foobar_units";
   config->work_unit_short_name = "f_units";
-  config->node_id = "foobar";
+  config->node_id = "Rays-Macbook-Pro.local";
   config->enable_auto_rebalance = 0;
   config->auto_rebalance_interval = 60;
   config->drain_time = 60;
   config->use_smart_balancing = 0;
-  config->node_id = "foobar";
   config->zkTimeout = 100000;
   config->use_soft_handoff = 0;
   config->handoff_shutdown_delay = 0;
