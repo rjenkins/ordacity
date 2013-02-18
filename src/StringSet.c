@@ -10,6 +10,7 @@
 StringSet* create_string_set() {
   StringSet *set = (StringSet *) malloc(sizeof(const StringSet *));
   set->add = &add;
+  set->size = &size;
   set->elements = (char **)malloc(INITIAL_SET_SIZE *sizeof(char *));
 
   for(int i=0; i<INITIAL_SET_SIZE; i++) {
@@ -17,6 +18,16 @@ StringSet* create_string_set() {
   }
   set->current_size = INITIAL_SET_SIZE;
   return set;
+}
+
+static int size(StringSet *set) {
+ printf("in size\n");
+ int i=0;
+ for(i; i<set->current_size; i++) {
+   if(set->elements[i] == NULL)
+     break;
+ }
+ return i;
 }
 
 static void add(StringSet * set, char *element) {

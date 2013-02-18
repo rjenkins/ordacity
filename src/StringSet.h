@@ -2,7 +2,7 @@
 
 typedef struct StringSet {
   void (*add)(void *set, char *element);
-  int (*contains)(const char *element);
+  int (*size)(void *set);
   char **elements;
   int current_size;
 } StringSet;
@@ -17,5 +17,6 @@ StringSet *create_string_set();
  * Private Functions
  */
 
+static int size(StringSet *set); 
 static void add(StringSet *set, char *element);
 static void print(StringSet *set);

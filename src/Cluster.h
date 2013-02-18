@@ -34,6 +34,7 @@ static int start_claimer();
 static void * claim_run();
 static void claim_work();
 static void force_shutdown();
+static void set_node_state(char *state);
 static void register_watchers();
 static void on_connect();
 static int is_previous_zk_active();

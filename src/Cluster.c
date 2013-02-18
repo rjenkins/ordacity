@@ -91,6 +91,8 @@ Cluster *create_cluster(const char *name, ClusterListener *listener, ClusterConf
   my_work_units->add(my_work_units, "fa");
   my_work_units->add(my_work_units, "figaro");
 
+  my_work_units->size(my_work_units);
+
   cluster = (Cluster *) malloc(sizeof(const Cluster *));
   cluster->name = name;
   cluster->join = &join;
@@ -200,6 +202,28 @@ static void on_connect()
   initialized = 1;
   pthread_mutex_unlock(&initialized_lock);
 
+  pthread_mutex_lock(&state_lock);
+  node_state = NODE_STATE_STARTED;
+  set_node_state("Started");
+  pthread_mutex_unlock(&state_lock);
+
+}
+
+void set_node_state(char * state) 
+{
+  char *new_node_state = malloc(snprintf(NULL, 0, "{\"state\": \"%s\", \"connectionID\": %lu}", 
+        state, myid.client_id) + 1);
+  sprintf(new_node_state, "{\"state\": \"%s\", \"connectionID\": %lu}", state, myid.client_id);
+  
+  char *node_name = cluster->name;
+  
+  char path_buffer[1024];
+  strcpy(path_buffer, "/");
+  strcat(path_buffer, node_name);
+  strcat(path_buffer, "/nodes/");
+  strncat(path_buffer, cluster_config->node_id, strlen(cluster_config->node_id));
+
+  int zoo_set_ret_val = zoo_set(zh, path_buffer, new_node_state, strlen(new_node_state), -1);
 }
 
 void nodes_watcher(zhandle_t *zzh, int type, int state, const char *path, void* context)
@@ -340,6 +364,9 @@ static void join_cluster()
   const int n = snprintf(NULL, 0, "%lu", myid.client_id);
   char buf[n+1];
   snprintf(buf, n+1, "%lu", myid.client_id);
+
+
+  //TODO Refcator this out with set_node_state
 
   char buffer[1024];
   memset(buffer, 0, 1024);
@@ -492,7 +519,10 @@ static void *claim_run() {
   printf("Claimer started\n");
   pthread_mutex_lock(&state_lock);
   while(node_state != NODE_STATE_SHUTDOWN) {
-    if(queue_get(queue) != NULL) {
+    struct queue_head *item = queue_get(queue);
+    printf("item is %s\n", item);
+    if(item != NULL) {
+      printf("calling claim work");
       claim_work();
     }
     sleep(2);
@@ -513,6 +543,11 @@ static void claim_work() {
     pthread_mutex_unlock(&connected_lock);
     return;
   }
+
+  pthread_mutex_unlock(&state_lock);
+  pthread_mutex_unlock(&connected_lock);
+  printf("about to check workunit size\n");
+  printf("my_work_units size is: %d\n", my_work_units->size(my_work_units));
 }
 
 
