@@ -3,7 +3,7 @@
 
 AC_PREREQ(2.61)
 AC_INIT(ordacity, 0.1, ray@boundary.com)
-AM_INIT_AUTOMAKE(ordacity, 0.1)
+AM_INIT_AUTOMAKE(ordacity, 0.1) 
 AC_PROG_RANLIB
 
 # Checks for programs.
