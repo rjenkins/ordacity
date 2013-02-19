@@ -1,5 +1,5 @@
 #include <stdio.h>
-#include "Cluster.h"
+#include "cluster/Cluster.h"
 
 void my_join(zhandle_t *zh);
 

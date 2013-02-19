@@ -2,7 +2,7 @@
 #include <stdlib.h>
 #include <pthread.h>
 
-#include "../queue.h"
+#include "queue.h"
 
 #define QUEUE_POISON1 ((void*)0xCAFEBAB5)
 

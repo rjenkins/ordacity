@@ -2,8 +2,8 @@
 #include <stdlib.h>
 #include <pthread.h>
 #include <string.h>
-#include "../queue.h"
-#include "../StringSet.h"
+#include "../collection/queue.h"
+#include "../collection/StringSet.h"
 #include "Cluster.h"
 #include "../NodeInfo.h"
 

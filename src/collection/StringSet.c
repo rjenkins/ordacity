@@ -1,7 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "../StringSet.h"
+#include "StringSet.h"
 
 /**
  * Create a new Set
