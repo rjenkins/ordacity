@@ -1,4 +1,4 @@
-#include "zookeeper.h"
+#include "../zookeeper.h"
 
 typedef struct {          
   void (*on_join)(zhandle_t *zh);
