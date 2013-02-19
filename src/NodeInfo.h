@@ -1,4 +1,4 @@
 typedef struct NodeInfo {
   char *state;
-  long connection_id;
+  char *connection_id;
 } NodeInfo;

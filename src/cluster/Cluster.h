@@ -49,5 +49,5 @@ static void ensure_clean_startup();
 
 static unsigned int node_hash(void *str);
 static int node_info_equal(void *node_info1,void *node_info2);
-
-
+static char *substring(int start, int end, char* buffer);
+static int string_equal(void *key1,void *key2);

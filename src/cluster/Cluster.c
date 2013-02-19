@@ -4,6 +4,7 @@
 #include <string.h>
 #include "../collection/queue.h"
 #include "../collection/StringSet.h"
+#include "../jsmn/jsmn.h"
 #include "Cluster.h"
 #include "../NodeInfo.h"
 
@@ -84,7 +85,7 @@ Cluster *create_cluster(const char *name, ClusterListener *listener, ClusterConf
   struct queue_head *item = malloc(sizeof(struct queue_head));
   INIT_QUEUE_HEAD(item);
 
-  nodes_table = create_hashtable(32,node_hash,node_info_equal);
+  nodes_table = create_hashtable(32,node_hash,string_equal);
   my_work_units = create_string_set();
   my_work_units->add(my_work_units, "foo");
   my_work_units->add(my_work_units, "fa");
@@ -315,6 +316,37 @@ static void register_watchers()
     printf("get code is %d\n", get_code);
     printf("result is %s\n", buffer);
     i++;
+
+    jsmn_parser parser;
+    jsmn_init(&parser);
+
+    jsmntok_t tokens[256];
+    int r = jsmn_parse(&parser, &buffer, tokens, 256);
+    if(r != JSMN_SUCCESS) {
+      printf("error parsing node");
+    } else { 
+
+      int start = tokens[2].start;
+      int end = tokens[2].end;
+      char *state = substring(start, end, &buffer);
+      printf("state is %s\n", state);
+
+      start = tokens[4].start;
+      end = tokens[4].end;
+      char *connectionID = substring(start, end, &buffer);
+      printf("connectionID is %s\n", connectionID);
+
+      NodeInfo * node_info = (NodeInfo *) malloc(sizeof(const NodeInfo *));   
+      node_info->state = state;
+      node_info->connection_id = connectionID;
+
+      printf("node is: %s\n", node);
+
+      hashtable_insert(nodes_table, node, node_info);
+
+      printf("insert done\n");
+
+    }
     //int x = 0;
     //while(x < node_info.count) {
     //  printf("node_info is %s\n", node_info.data[x++]);
@@ -621,10 +653,33 @@ static unsigned int node_hash(void *str)
   return hash;
 }
 
+static int string_equal(void *key1,void *key2)
+{
+  return strcmp((const char*)key1,(const char*)key2)==0;
+}
+
+
 static int node_info_equal(void *node_info1,void *node_info2)
 {
   struct NodeInfo * node1 = (struct NodeInfo *) node_info1;
   struct NodeInfo * node2 = (struct NodeInfo *) node_info2;
   return strcmp(node1->state,node2->state) ==0 &&
-    node1->connection_id == node2->connection_id;
+    strcmp(node1->connection_id,node2->connection_id) == 0;
 }
+
+static char *substring(int start, int end, char* buffer) {
+  
+  char *string = malloc((end - start) + 1);
+  char *s = string;
+  char *p = buffer;
+  p = p + start;
+  while(start < end)
+  {
+    *s++ = *p++;
+    start++;
+  }
+
+  *s++ = '\0';
+  return string;
+}
+
