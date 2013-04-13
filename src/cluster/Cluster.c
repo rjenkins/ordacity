@@ -9,7 +9,6 @@
 #include "NodeInfo.h"
 #include "WorkUnit.h"
 
-
 /**
  * Lock for our node_state, initialization state and Zookeeper connection state
  */
@@ -128,7 +127,7 @@ static void join() {
 
 /**
  * Our implemenation of a zookeeper watcher is passed on zookeeper_init and called when
- * zookeeper connection state changes on succesful connection we launch our service with 
+ * zookeeper connection state changes. On a succesful connection we launch our service with
  * a call to on_connect
  */
 static void connection_watcher(zhandle_t *zzh, int type, int state, const char *path,
@@ -227,7 +226,7 @@ void set_node_state(char * state) {
 }
 
 /**
- *
+ * Watch the nodes directory
  */
 void nodes_dir_watcher(zhandle_t *zzh, int type, int state, const char *path, void* context) {
 
@@ -278,7 +277,16 @@ void nodes_dir_watcher(zhandle_t *zzh, int type, int state, const char *path, vo
   }
 }
 
-void verify_integrity_watcher(zhandle_t *zzh, int type, int state, const char *path, void* context) {
+void handoff_results_watcher(void *watcherCtx, stat_completion_t completion, const void *data) {
+
+}
+
+void work_units_watcher(zhandle_t *zzh, int type, int state, const char *path, void* context) {
+
+//  printf("in work_units_watcher\n");
+//  printf("type is %d\n", type);
+//  printf("ZOO_CREATED_EVENT is: %d\n", ZOO_CREATED_EVENT);
+//  printf("ZOO_DELETED_EVENT is: %d\n", ZOO_DELETED_EVENT);
   DEBUG_PRINT(("in verify integrety watcher"));
 
   char buffer[1024];
@@ -291,13 +299,16 @@ void verify_integrity_watcher(zhandle_t *zzh, int type, int state, const char *p
 
   struct String_vector available_work_units;
 
-  int work_unit_ret_val = zoo_wget_children(zh, path, verify_integrity_watcher,
-      context, &available_work_units);
+  int work_unit_ret_val = zoo_wget_children(zh, path, work_units_watcher, context,
+      &available_work_units);
 
-
-}
-
-void handoff_results_watcher(void *watcherCtx, stat_completion_t completion, const void *data) {
+  if (work_unit_ret_val != ZOK) {
+    printf("error fetching children in verify_integrity_watcher for: %s\n", path);
+    exit(ERROR_WATCHING_NODES);
+  } else {
+    // Iterate through watchers
+    register_work_unit_watchers(available_work_units, path);
+  }
 
 }
 
@@ -319,14 +330,14 @@ static void register_watchers() {
   if (nodes.count)
     deallocate_String_vector(&nodes);
 
+  //
   char *work_unit_name_path = malloc(
       snprintf(NULL, 0, "%s%s", "/", cluster_config->work_unit_name) + 1);
   sprintf(work_unit_name_path, "%s%s", "/", cluster_config->work_unit_name);
 
-  DEBUG_PRINT(("work_unit_name_path is: %s\n", work_unit_name_path));
   struct String_vector available_work_units;
-  int work_unit_ret_val = zoo_wget_children(zh, work_unit_name_path, verify_integrity_watcher,
-      context, &available_work_units);
+  int work_unit_ret_val = zoo_wget_children(zh, work_unit_name_path, work_units_watcher, context,
+      &available_work_units);
 
   if (work_unit_ret_val != ZOK) {
     printf("error fetching children in register_watchers for: %s\n", work_unit_name_path);
@@ -340,39 +351,39 @@ static void register_watchers() {
 
   free(work_unit_name_path);
 
-  char *claimed_work_unit_path = malloc(
-      snprintf(NULL, 0, "%s%s%s%s", "/", cluster->name, "/claimed-",
-          cluster_config->work_unit_short_name) + 1);
-
-  sprintf(claimed_work_unit_path, "%s%s%s%s", "/", cluster->name, "/claimed-",
-      cluster_config->work_unit_short_name);
-
-  work_unit_ret_val = zoo_wget_children(zh, claimed_work_unit_path, verify_integrity_watcher, NULL,
-      (struct String_vector *) malloc(sizeof(struct String_vector)));
-
-  free(claimed_work_unit_path);
-
-  if (cluster_config->use_soft_handoff == TRUE) {
-
-    char *handoff_requests_path = malloc(
-        snprintf(NULL, 0, "%s%s%s", "/", cluster->name, "/handoff-requests") + 1);
-    sprintf(handoff_requests_path, "%s%s%s", "/", cluster->name, "/handoff-requests");
-
-    int hand_off_ret_val = zoo_wget_children(zh, handoff_requests_path, verify_integrity_watcher,
-        NULL, (struct String_vector *) malloc(sizeof(struct String_vector)));
-
-    free(handoff_requests_path);
-
-    char *handoff_result_path = malloc(
-        snprintf(NULL, 0, "%s%s%s", "/", cluster->name, "/handoff-result") + 1);
-    snprintf(handoff_result_path, "%s%s%s", "/", cluster->name, "/handoff-result");
-
-    hand_off_ret_val = zoo_wget_children(zh, handoff_result_path, handoff_results_watcher, NULL,
-        (struct String_vector *) malloc(sizeof(struct String_vector)));
-
-    free(handoff_result_path);
-
-  }
+//  char *claimed_work_unit_path = malloc(
+//      snprintf(NULL, 0, "%s%s%s%s", "/", cluster->name, "/claimed-",
+//          cluster_config->work_unit_short_name) + 1);
+//
+//  sprintf(claimed_work_unit_path, "%s%s%s%s", "/", cluster->name, "/claimed-",
+//      cluster_config->work_unit_short_name);
+//
+//  work_unit_ret_val = zoo_wget_children(zh, claimed_work_unit_path, verify_integrity_watcher, NULL,
+//      (struct String_vector *) malloc(sizeof(struct String_vector)));
+//
+//  free(claimed_work_unit_path);
+//
+//  if (cluster_config->use_soft_handoff == TRUE) {
+//
+//    char *handoff_requests_path = malloc(
+//        snprintf(NULL, 0, "%s%s%s", "/", cluster->name, "/handoff-requests") + 1);
+//    sprintf(handoff_requests_path, "%s%s%s", "/", cluster->name, "/handoff-requests");
+//
+//    int hand_off_ret_val = zoo_wget_children(zh, handoff_requests_path, verify_integrity_watcher,
+//        NULL, (struct String_vector *) malloc(sizeof(struct String_vector)));
+//
+//    free(handoff_requests_path);
+//
+//    char *handoff_result_path = malloc(
+//        snprintf(NULL, 0, "%s%s%s", "/", cluster->name, "/handoff-result") + 1);
+//    snprintf(handoff_result_path, "%s%s%s", "/", cluster->name, "/handoff-result");
+//
+//    hand_off_ret_val = zoo_wget_children(zh, handoff_result_path, handoff_results_watcher, NULL,
+//        (struct String_vector *) malloc(sizeof(struct String_vector)));
+//
+//    free(handoff_result_path);
+//
+//  }
 
   if (cluster_config->use_smart_balancing == TRUE) {
     //TODO impl smart balancing ?
@@ -382,9 +393,14 @@ static void register_watchers() {
 static void get_and_register_unit_watcher(zhandle_t *zzh, int type, int state, const char *path,
     char* context) {
 
-  printf("type is %d\n", type);
+  if(type == ZOO_DELETED_EVENT) {
+
+  }
 }
 
+/**
+ * Retrieve each of the available work units and register a watcher for each unit.
+ */
 static void register_work_unit_watchers(struct String_vector units, char * units_path) {
   int i = 0;
   while (i < units.count) {
@@ -417,7 +433,6 @@ static void register_work_unit_watchers(struct String_vector units, char * units
     i++;
   }
 }
-
 
 /**
  * get_and_register_node_watcher and register_node_change_watchers should be refactored
@@ -679,11 +694,13 @@ static void *claim_run() {
  */
 
 static void claim_work() {
+  DEBUG_PRINT(("in claim_work\n"));
   pthread_mutex_lock(&state_lock);
   pthread_mutex_lock(&connected_lock);
   if (node_state != NODE_STATE_STARTED || connected != 1) {
     pthread_mutex_unlock(&state_lock);
     pthread_mutex_unlock(&connected_lock);
+    DEBUG_PRINT(("in claim_work node not started, exiting\n"));
     return;
   }
 
