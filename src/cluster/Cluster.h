@@ -1,6 +1,12 @@
 #include "ClusterConfig.h"
 #include "ClusterListener.h"
 
+#ifdef DEBUG
+# define DEBUG_PRINT(x) printf x
+#else
+# define DEBUG_PRINT(x) do {} while (0)
+#endif
+
 #define NODE_STATE_FRESH 0
 #define NODE_STATE_SHUTDOWN 1
 #define NODE_STATE_DRAINING 2
@@ -44,6 +50,7 @@ static void claim_work();
 static void force_shutdown();
 static void set_node_state(char *state);
 static void register_watchers();
+static void register_node_change_watchers(struct String_vector nodes, char * nodes_path);
 static void on_connect();
 static int is_previous_zk_active();
 static void my_strings_completion(int rc, const struct String_vector *strings,

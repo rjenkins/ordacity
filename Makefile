@@ -59,6 +59,7 @@ libordacity_a_AR = $(AR) $(ARFLAGS)
 libordacity_a_LIBADD =
 am__dirstamp = $(am__leading_dot)dirstamp
 am_libordacity_a_OBJECTS = src/cluster/Cluster.$(OBJEXT) \
+	src/cluster/NodeInfo.$(OBJEXT) \
 	src/collection/queue_lock_mutex.$(OBJEXT) \
 	src/collection/StringSet.$(OBJEXT) src/jsmn/jsmn.$(OBJEXT)
 libordacity_a_OBJECTS = $(am_libordacity_a_OBJECTS)
@@ -97,7 +98,7 @@ CCDEPMODE = depmode=gcc3
 CFLAGS = -g -O2
 CPPFLAGS = -I/Users/rjenkins/Downloads/zookeeper-3.4.3/src/c/include -I/Users/rjenkins/Downloads/zookeeper-3.4.3/src/c/src/hashtable -I/Users/rjenkins/Downloads/zookeeper-3.4.3/src/c/generated
 CYGPATH_W = echo
-DEFS = -DPACKAGE_NAME=\"ordacity\" -DPACKAGE_TARNAME=\"ordacity\" -DPACKAGE_VERSION=\"0.1\" -DPACKAGE_STRING=\"ordacity\ 0.1\" -DPACKAGE_BUGREPORT=\"ray@boundary.com\" -DPACKAGE=\"ordacity\" -DVERSION=\"0.1\" -DPACKAGE=\"ordacity\" -DVERSION=\"0.1\" -DHAVE_LIBM=1
+DEFS = -DPACKAGE_NAME=\"ordacity\" -DPACKAGE_TARNAME=\"ordacity\" -DPACKAGE_VERSION=\"0.1\" -DPACKAGE_STRING=\"ordacity\ 0.1\" -DPACKAGE_BUGREPORT=\"ray@boundary.com\" -DPACKAGE=\"ordacity\" -DVERSION=\"0.1\" -DPACKAGE=\"ordacity\" -DVERSION=\"0.1\" -DDEBUG=1 -DHAVE_LIBM=1
 DEPDIR = .deps
 ECHO_C = \c
 ECHO_N = 
@@ -174,7 +175,7 @@ AUTOMAKE_OPTIONS = foreign
 AM_CFLAGS = --pedantic -Wall -std=c99 -O2 
 AM_LDFLAGS = -lm 
 lib_LIBRARIES = libordacity.a
-libordacity_a_SOURCES = src/cluster/Cluster.c src/collection/queue_lock_mutex.c src/collection/StringSet.c src/jsmn/jsmn.c
+libordacity_a_SOURCES = src/cluster/Cluster.c src/cluster/NodeInfo.c src/collection/queue_lock_mutex.c src/collection/StringSet.c src/jsmn/jsmn.c
 include_HEADERS = src/cluster/ClusterConfig.h src/cluster/ClusterListener.h src/jsmn/jsmn.h
 all: all-am
 
@@ -252,6 +253,8 @@ src/cluster/$(DEPDIR)/$(am__dirstamp):
 	@: > src/cluster/$(DEPDIR)/$(am__dirstamp)
 src/cluster/Cluster.$(OBJEXT): src/cluster/$(am__dirstamp) \
 	src/cluster/$(DEPDIR)/$(am__dirstamp)
+src/cluster/NodeInfo.$(OBJEXT): src/cluster/$(am__dirstamp) \
+	src/cluster/$(DEPDIR)/$(am__dirstamp)
 src/collection/$(am__dirstamp):
 	@$(MKDIR_P) src/collection
 	@: > src/collection/$(am__dirstamp)
@@ -279,6 +282,7 @@ libordacity.a: $(libordacity_a_OBJECTS) $(libordacity_a_DEPENDENCIES)
 mostlyclean-compile:
 	-rm -f *.$(OBJEXT)
 	-rm -f src/cluster/Cluster.$(OBJEXT)
+	-rm -f src/cluster/NodeInfo.$(OBJEXT)
 	-rm -f src/collection/StringSet.$(OBJEXT)
 	-rm -f src/collection/queue_lock_mutex.$(OBJEXT)
 	-rm -f src/jsmn/jsmn.$(OBJEXT)
@@ -287,6 +291,7 @@ distclean-compile:
 	-rm -f *.tab.c
 
 include src/cluster/$(DEPDIR)/Cluster.Po
+include src/cluster/$(DEPDIR)/NodeInfo.Po
 include src/collection/$(DEPDIR)/StringSet.Po
 include src/collection/$(DEPDIR)/queue_lock_mutex.Po
 include src/jsmn/$(DEPDIR)/jsmn.Po

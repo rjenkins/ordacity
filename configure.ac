@@ -15,6 +15,9 @@ AC_PROG_CC
 
 CPPFLAGS="-I/Users/rjenkins/Downloads/zookeeper-3.4.3/src/c/include -I/Users/rjenkins/Downloads/zookeeper-3.4.3/src/c/src/hashtable -I/Users/rjenkins/Downloads/zookeeper-3.4.3/src/c/generated";
 
+AC_ARG_ENABLE(debug, "used to turn on the DEBUG flag",
+  [ AC_DEFINE(DEBUG) ])
+
 # Checks for libraries.
 # FIXME: Replace `main' with a function in `-lm':
 AC_CHECK_LIB([m], [main])

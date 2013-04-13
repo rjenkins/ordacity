@@ -81,7 +81,7 @@ CCDEPMODE = depmode=gcc3
 CFLAGS = -g -O2
 CPPFLAGS = -I/Users/rjenkins/Downloads/zookeeper-3.4.3/src/c/include -I/Users/rjenkins/Downloads/zookeeper-3.4.3/src/c/src/hashtable -I/Users/rjenkins/Downloads/zookeeper-3.4.3/src/c/generated
 CYGPATH_W = echo
-DEFS = -DPACKAGE_NAME=\"ordacity\" -DPACKAGE_TARNAME=\"ordacity\" -DPACKAGE_VERSION=\"0.1\" -DPACKAGE_STRING=\"ordacity\ 0.1\" -DPACKAGE_BUGREPORT=\"ray@boundary.com\" -DPACKAGE=\"ordacity\" -DVERSION=\"0.1\" -DPACKAGE=\"ordacity\" -DVERSION=\"0.1\" -DHAVE_LIBM=1
+DEFS = -DPACKAGE_NAME=\"ordacity\" -DPACKAGE_TARNAME=\"ordacity\" -DPACKAGE_VERSION=\"0.1\" -DPACKAGE_STRING=\"ordacity\ 0.1\" -DPACKAGE_BUGREPORT=\"ray@boundary.com\" -DPACKAGE=\"ordacity\" -DVERSION=\"0.1\" -DPACKAGE=\"ordacity\" -DVERSION=\"0.1\" -DDEBUG=1 -DHAVE_LIBM=1
 DEPDIR = .deps
 ECHO_C = \c
 ECHO_N = 

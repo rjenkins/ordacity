@@ -1242,6 +1242,7 @@ Optional Features:
   --enable-FEATURE[=ARG]  include FEATURE [ARG=yes]
   --disable-dependency-tracking  speeds up one-time build
   --enable-dependency-tracking   do not reject slow dependency extractors
+"used to turn on the DEBUG flag"
 
 Some influential environment variables:
   CC          C compiler command
@@ -3636,6 +3637,15 @@ fi
 #Zookeeper
 
 CPPFLAGS="-I/Users/rjenkins/Downloads/zookeeper-3.4.3/src/c/include -I/Users/rjenkins/Downloads/zookeeper-3.4.3/src/c/src/hashtable -I/Users/rjenkins/Downloads/zookeeper-3.4.3/src/c/generated";
+
+# Check whether --enable-debug was given.
+if test "${enable_debug+set}" = set; then
+  enableval=$enable_debug;  cat >>confdefs.h <<\_ACEOF
+#define DEBUG 1
+_ACEOF
+
+fi
+
 
 # Checks for libraries.
 # FIXME: Replace `main' with a function in `-lm':

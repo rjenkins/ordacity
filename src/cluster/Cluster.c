@@ -6,7 +6,7 @@
 #include "../collection/StringSet.h"
 #include "../jsmn/jsmn.h"
 #include "Cluster.h"
-#include "../NodeInfo.h"
+#include "NodeInfo.h"
 
 /**
  * Lock for our node_state, initialization state and Zookeeper connection state
@@ -80,7 +80,7 @@ Cluster *create_cluster(const char *name, ClusterListener *listener, ClusterConf
   struct queue_head *item = malloc(sizeof(struct queue_head));
   INIT_QUEUE_HEAD(item);
 
-  nodes_table = create_hashtable(32, node_hash, node_info_equal);
+  nodes_table = create_hashtable(32, node_hash, string_equal);
   my_work_units = create_string_set();
   my_work_units->add(my_work_units, "foo");
   my_work_units->add(my_work_units, "fa");
@@ -219,7 +219,15 @@ void set_node_state(char * state) {
   int zoo_set_ret_val = zoo_set(zh, path_buffer, new_node_state, strlen(new_node_state), -1);
 }
 
-void nodes_watcher(zhandle_t *zzh, int type, int state, const char *path, void* context) {
+/**
+ *
+ */
+void nodes_dir_watcher(zhandle_t *zzh, int type, int state, const char *path, void* context) {
+
+  printf("created is %d\n", ZOO_CREATED_EVENT);
+  printf("changed is %d\n", ZOO_CHANGED_EVENT);
+  printf("zoo child is %d\n", ZOO_CHILD_EVENT);
+
   pthread_mutex_lock(&initialized_lock);
   if (initialized == 0) {
     pthread_mutex_unlock(&initialized_lock);
@@ -244,7 +252,7 @@ void nodes_watcher(zhandle_t *zzh, int type, int state, const char *path, void* 
     }
   }
 
-  rc = zoo_wget_children(zh, path, nodes_watcher, context, &str);
+  rc = zoo_wget_children(zh, path, nodes_dir_watcher, context, &str);
   if (ZOK != rc) {
     printf("Problems  %d\n", rc);
   } else {
@@ -277,77 +285,12 @@ static void register_watchers() {
   sprintf(nodes_path, "%s%s%s", "/", cluster->name, "/nodes");
 
   struct String_vector nodes;
+  int nodes_ret_val = zoo_wget_children(zh, nodes_path, nodes_dir_watcher, context, &nodes);
+  register_node_change_watchers(nodes, nodes_path);
 
-  int nodes_ret_val = zoo_wget_children(zh, nodes_path, nodes_watcher, context, &nodes);
-
-  int i = 0;
-  while (i < nodes.count) {
-    printf("kids are %s\n", nodes.data[i]);
-    char *node = nodes.data[i];
-    struct String_vector node_info;
-
-    char *full_node_path = malloc(snprintf(NULL, 0, "%s%s%s", nodes_path, "/", node) + 1);
-    sprintf(full_node_path, "%s%s%s", nodes_path, "/", node);
-
-    char buffer[1024];
-    memset(buffer, 0, 1024);
-
-    int buflen = sizeof(buffer);
-    struct Stat stat;
-
-    printf("full node path is %s\n", full_node_path);
-
-    int get_code = zoo_get(zh, full_node_path, 0, buffer, &buflen, &stat);
-    printf("get code is %d\n", get_code);
-    printf("result is %s\n", buffer);
-    i++;
-
-    jsmn_parser parser;
-    jsmn_init(&parser);
-
-    jsmntok_t tokens[256];
-    int r = jsmn_parse(&parser, &buffer, tokens, 256);
-    if (r != JSMN_SUCCESS) {
-      printf("error parsing node");
-    } else {
-
-      int start = tokens[2].start;
-      int end = tokens[2].end;
-      char *state = substring(start, end, &buffer);
-      printf("state is %s\n", state);
-
-      start = tokens[4].start;
-      end = tokens[4].end;
-      char *connectionID = substring(start, end, &buffer);
-      printf("connectionID is %s\n", connectionID);
-
-      NodeInfo * node_info = (NodeInfo *) malloc(sizeof(struct NodeInfo));
-      node_info->state = strdup(state);
-      node_info->connection_id = connectionID;
-
-      printf("node is: %s\n", node);
-
-      struct key * k = (struct key *) malloc(sizeof(struct key));
-      k->key = node;
-
-      printf("about to insert\n");
-      hashtable_insert(nodes_table, k, node_info);
-
-      printf("insert done\n");
-
-    }
-    int x = 0;
-    while (x < node_info.count) {
-      printf("node_info is %s\n", node_info.data[x++]);
-    }
-
-  }
-
-  if (nodes.count) {
+  // free nodes if any results were returned
+  if (nodes.count)
     deallocate_String_vector(&nodes);
-  }
-
-  free(nodes_path);
 
   char *work_unit_name_path = malloc(
       snprintf(NULL, 0, "%s%s", "/", cluster_config->work_unit_name) + 1);
@@ -398,6 +341,54 @@ static void register_watchers() {
 
 }
 
+static void node_watcher(zhandle_t *zzh, int type, int state, const char *path, void* context) {
+  printf("path changed is: %s\n", path);
+}
+
+static void register_node_change_watchers(struct String_vector nodes, char * nodes_path) {
+  int i = 0;
+  while (i < nodes.count) {
+
+    DEBUG_PRINT(("child of %s is %s\n", nodes_path, nodes.data[i]));
+
+    char *node = nodes.data[i];
+    struct String_vector node_info;
+
+    char *full_node_path = malloc(snprintf(NULL, 0, "%s%s%s", nodes_path, "/", node) + 1);
+    sprintf(full_node_path, "%s%s%s", nodes_path, "/", node);
+
+    char buffer[1024];
+    memset(buffer, 0, 1024);
+
+    int buflen = sizeof(buffer);
+    struct Stat stat;
+
+    //int get_code = zoo_get(zh, full_node_path, 0, buffer, &buflen, &stat);
+    int get_code = zoo_wget(zh, full_node_path, node_watcher, NULL, buffer, &buflen, &stat);
+
+    if (get_code != ZOK) {
+      printf("error fetching contents of znode: %s", full_node_path);
+      DEBUG_PRINT(("get code is %d\n", get_code));
+      DEBUG_PRINT(("result is %s\n", buffer));
+    }
+
+    jsmn_parser parser;
+    jsmn_init(&parser);
+    jsmntok_t tokens[256];
+    if (jsmn_parse(&parser, &buffer, tokens, 256) != JSMN_SUCCESS) {
+      printf("error parsing JSON for ordasity node");
+    } else {
+      NodeInfo * node_info = get_node_info(tokens, buffer);
+      struct key * node_info_key = (struct key *) malloc(sizeof(struct key));
+      node_info_key->key = node;
+      hashtable_insert(nodes_table, node_info_key, node_info);
+      NodeInfo *res = hashtable_search(nodes_table, node_info_key);
+    }
+    i++;
+  }
+  free(nodes_path);
+}
+
 static void join_cluster() {
 
   const int n = snprintf(NULL, 0, "%lu", myid.client_id);
@@ -411,8 +402,6 @@ static void join_cluster() {
   strcpy(buffer, "{\"state\": \"Fresh\", \"connectionID\":");
   strcat(buffer, buf);
   strcat(buffer, "}");
-
-  printf("BUFFER IS %s\n", buffer);
 
   char *node_name = cluster->name;
 
@@ -519,14 +508,14 @@ static int is_previous_zk_active() {
 
 /**
  * cluster_connect - atomically check cluster connection state 
- * start claimer and connect to zookeeper. If claimer fails
+ * start claimer and connect to Zookeeper. If claimer fails
  * to start exit with ERROR_STARTING_CLAIMER
  */
 static void cluster_connect() {
 
   pthread_mutex_lock(&initialized_lock);
   if (initialized == 0) { //Not initialized
-    printf("Connecting to hosts %s\n", cluster_config->hosts);
+    printf("Connecting to host %s\n", cluster_config->hosts);
 
     // Exit if unable to start claimer
     if (start_claimer() != 0)
@@ -548,16 +537,16 @@ static int start_claimer() {
 }
 
 /**
- * Our claimer implemenation - waits on a blocking work queue to claim work
+ * Our claimer implementation - waits on a blocking work queue to claim work
  */
 static void *claim_run() {
   printf("Claimer started\n");
   pthread_mutex_lock(&state_lock);
   while (node_state != NODE_STATE_SHUTDOWN) {
     struct queue_head *item = queue_get(queue);
-    printf("item is %s\n", item);
+    DEBUG_PRINT(("checking claim queue, queue_head is %s\n", item));
     if (item != NULL ) {
-      printf("calling claim work");
+      DEBUG_PRINT(("calling claim work"));
       claim_work();
     }
     sleep(2);
@@ -633,26 +622,3 @@ static unsigned int node_hash(void *str) {
 static int string_equal(void *key1, void *key2) {
   return strcmp((const char*) key1, (const char*) key2) == 0;
 }
-
-static int node_info_equal(void *node_info1, void *node_info2) {
-  struct NodeInfo * node1 = (struct NodeInfo *) node_info1;
-  struct NodeInfo * node2 = (struct NodeInfo *) node_info2;
-  return strcmp(node1->state, node2->state) == 0
-      && strcmp(node1->connection_id, node2->connection_id) == 0;
-}
-
-static char *substring(int start, int end, char* buffer) {
-
-  char *string = malloc((end - start) + 1);
-  char *s = string;
-  char *p = buffer;
-  p = p + start;
-  while (start < end) {
-    *s++ = *p++;
-    start++;
-  }
-
-  *s++ = '\0';
-  return string;
-}
-
