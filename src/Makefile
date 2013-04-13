@@ -79,9 +79,9 @@ AWK = awk
 CC = gcc
 CCDEPMODE = depmode=gcc3
 CFLAGS = -g -O2
-CPPFLAGS = 
+CPPFLAGS = -I/Users/rjenkins/Downloads/zookeeper-3.4.3/src/c/include -I/Users/rjenkins/Downloads/zookeeper-3.4.3/src/c/src/hashtable -I/Users/rjenkins/Downloads/zookeeper-3.4.3/src/c/generated
 CYGPATH_W = echo
-DEFS = -DPACKAGE_NAME=\"ordacity\" -DPACKAGE_TARNAME=\"ordacity\" -DPACKAGE_VERSION=\"0.1\" -DPACKAGE_STRING=\"ordacity\ 0.1\" -DPACKAGE_BUGREPORT=\"ray@boundary.com\" -DPACKAGE=\"ordacity\" -DVERSION=\"0.1\" -DHAVE_LIBM=1
+DEFS = -DPACKAGE_NAME=\"ordacity\" -DPACKAGE_TARNAME=\"ordacity\" -DPACKAGE_VERSION=\"0.1\" -DPACKAGE_STRING=\"ordacity\ 0.1\" -DPACKAGE_BUGREPORT=\"ray@boundary.com\" -DPACKAGE=\"ordacity\" -DVERSION=\"0.1\" -DPACKAGE=\"ordacity\" -DVERSION=\"0.1\" -DHAVE_LIBM=1
 DEPDIR = .deps
 ECHO_C = \c
 ECHO_N = 
@@ -237,18 +237,20 @@ include ./$(DEPDIR)/StringSet.Po
 include ./$(DEPDIR)/queue_lock_mutex.Po
 
 .c.o:
-	$(COMPILE) -MT $@ -MD -MP -MF $(DEPDIR)/$*.Tpo -c -o $@ $<
-	mv -f $(DEPDIR)/$*.Tpo $(DEPDIR)/$*.Po
+	depbase=`echo $@ | sed 's|[^/]*$$|$(DEPDIR)/&|;s|\.o$$||'`;\
+	$(COMPILE) -MT $@ -MD -MP -MF $$depbase.Tpo -c -o $@ $< &&\
+	mv -f $$depbase.Tpo $$depbase.Po
 #	source='$<' object='$@' libtool=no \
 #	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) \
-#	$(COMPILE) -c $<
+#	$(COMPILE) -c -o $@ $<
 
 .c.obj:
-	$(COMPILE) -MT $@ -MD -MP -MF $(DEPDIR)/$*.Tpo -c -o $@ `$(CYGPATH_W) '$<'`
-	mv -f $(DEPDIR)/$*.Tpo $(DEPDIR)/$*.Po
+	depbase=`echo $@ | sed 's|[^/]*$$|$(DEPDIR)/&|;s|\.obj$$||'`;\
+	$(COMPILE) -MT $@ -MD -MP -MF $$depbase.Tpo -c -o $@ `$(CYGPATH_W) '$<'` &&\
+	mv -f $$depbase.Tpo $$depbase.Po
 #	source='$<' object='$@' libtool=no \
 #	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) \
-#	$(COMPILE) -c `$(CYGPATH_W) '$<'`
+#	$(COMPILE) -c -o $@ `$(CYGPATH_W) '$<'`
 install-includeHEADERS: $(include_HEADERS)
 	@$(NORMAL_INSTALL)
 	test -z "$(includedir)" || $(MKDIR_P) "$(DESTDIR)$(includedir)"

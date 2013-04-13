@@ -11,6 +11,10 @@ AC_PROG_RANLIB
 # Checks for programs.
 AC_PROG_CC
 
+#Zookeeper
+
+CPPFLAGS="-I/Users/rjenkins/Downloads/zookeeper-3.4.3/src/c/include -I/Users/rjenkins/Downloads/zookeeper-3.4.3/src/c/src/hashtable -I/Users/rjenkins/Downloads/zookeeper-3.4.3/src/c/generated";
+
 # Checks for libraries.
 # FIXME: Replace `main' with a function in `-lm':
 AC_CHECK_LIB([m], [main])

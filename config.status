@@ -508,7 +508,7 @@ s,@psdir@,|#_!!_#|${docdir},g
 s,@libdir@,|#_!!_#|${exec_prefix}/lib,g
 s,@localedir@,|#_!!_#|${datarootdir}/locale,g
 s,@mandir@,|#_!!_#|${datarootdir}/man,g
-s,@DEFS@,|#_!!_#|-DPACKAGE_NAME=\\"ordacity\\" -DPACKAGE_TARNAME=\\"ordacity\\" -DPACKAGE_VERSION=\\"0.1\\" -DPACKAGE_STRING=\\"ordacity\\ 0.1\\" -DPACKAGE_BUGREPORT=\\"ray@|#_!!_#|boundary.com\\" -DPACKAGE=\\"ordacity\\" -DVERSION=\\"0.1\\" -DHAVE_LIBM=1,g
+s,@DEFS@,|#_!!_#|-DPACKAGE_NAME=\\"ordacity\\" -DPACKAGE_TARNAME=\\"ordacity\\" -DPACKAGE_VERSION=\\"0.1\\" -DPACKAGE_STRING=\\"ordacity\\ 0.1\\" -DPACKAGE_BUGREPORT=\\"ray@|#_!!_#|boundary.com\\" -DPACKAGE=\\"ordacity\\" -DVERSION=\\"0.1\\" -DPACKAGE=\\"ordacity\\" -DVERSION=\\"0.1\\" -DHAVE_LIBM=1,g
 s,@ECHO_C@,|#_!!_#|\\c,g
 s,@ECHO_N@,|#_!!_#|,g
 s,@ECHO_T@,|#_!!_#|,g
@@ -542,7 +542,7 @@ s,@RANLIB@,|#_!!_#|ranlib,g
 s,@CC@,|#_!!_#|gcc,g
 s,@CFLAGS@,|#_!!_#|-g -O2,g
 s,@LDFLAGS@,|#_!!_#|,g
-s,@CPPFLAGS@,|#_!!_#|,g
+s,@CPPFLAGS@,|#_!!_#|-I/Users/rjenkins/Downloads/zookeeper-3.4.3/src/c/include -I/Users/rjenkins/Downloads/zookeeper-3.4.3/src/c/src/hashtable -I/Users/rjenkins/Downloads/zookeeper-3.4.3/src/c/generated,g
 s,@ac_ct_CC@,|#_!!_#|gcc,g
 s,@EXEEXT@,|#_!!_#|,g
 s,@OBJEXT@,|#_!!_#|o,g

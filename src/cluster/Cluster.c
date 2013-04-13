@@ -1,7 +1,7 @@
-#include <stdio.h>
 #include <stdlib.h>
 #include <pthread.h>
 #include <string.h>
+#include "hashtable.h"
 #include "../collection/queue.h"
 #include "../collection/StringSet.h"
 #include "../jsmn/jsmn.h"
@@ -9,8 +9,7 @@
 #include "../NodeInfo.h"
 
 /**
- * Lock for our node_state, initialization state and zookeeper connection state
- *
+ * Lock for our node_state, initialization state and Zookeeper connection state
  */
 pthread_mutex_t state_lock;
 pthread_mutex_t initialized_lock;
@@ -35,7 +34,8 @@ Cluster *cluster;
 static clientid_t myid;
 
 // Cluster, node and work unit state
-struct hashtable* nodes_table;
+struct hashtable *nodes_table;
+
 StringSet *my_work_units;
 
 void *context;
@@ -51,41 +51,36 @@ void *context;
  * return a reference to a Cluster
  *
  */
-Cluster *create_cluster(const char *name, ClusterListener *listener, ClusterConfig *config)
-{
+Cluster *create_cluster(const char *name, ClusterListener *listener, ClusterConfig *config) {
 
   cluster_config = config;
   cluster_listener = listener;
 
-  if (pthread_mutex_init(&state_lock, NULL) != 0)
-  {
+  if (pthread_mutex_init(&state_lock, NULL ) != 0) {
     printf("\n mutex init failed\n");
-    return NULL;
+    return NULL ;
   }
 
-  if (pthread_mutex_init(&initialized_lock, NULL) != 0)
-  {
+  if (pthread_mutex_init(&initialized_lock, NULL ) != 0) {
     printf("\n mutex init failed\n");
-    return NULL;
+    return NULL ;
   }
 
-  if (pthread_mutex_init(&connected_lock, NULL) != 0)
-  {
+  if (pthread_mutex_init(&connected_lock, NULL ) != 0) {
     printf("\n mutex init failed\n");
-    return NULL;
+    return NULL ;
   }
 
-  if (pthread_mutex_init(&watches_registered_lock, NULL) != 0)
-  {
+  if (pthread_mutex_init(&watches_registered_lock, NULL ) != 0) {
     printf("\n mutex init failed\n");
-    return NULL;
+    return NULL ;
   }
 
   queue = ALLOC_QUEUE_ROOT();
   struct queue_head *item = malloc(sizeof(struct queue_head));
   INIT_QUEUE_HEAD(item);
 
-  nodes_table = create_hashtable(32,node_hash,string_equal);
+  nodes_table = create_hashtable(32, node_hash, node_info_equal);
   my_work_units = create_string_set();
   my_work_units->add(my_work_units, "foo");
   my_work_units->add(my_work_units, "fa");
@@ -107,18 +102,17 @@ Cluster *create_cluster(const char *name, ClusterListener *listener, ClusterConf
  * NODE_STATE_SHUTDOWN otherwise ignores  
  *
  */
-static void join() 
-{
+static void join() {
   pthread_mutex_lock(&state_lock);
-  if(node_state == NODE_STATE_FRESH) {
+  if (node_state == NODE_STATE_FRESH) {
     pthread_mutex_unlock(&state_lock);
     cluster_connect();
-  } else if(node_state == NODE_STATE_SHUTDOWN) {
+  } else if (node_state == NODE_STATE_SHUTDOWN) {
     pthread_mutex_unlock(&state_lock);
     cluster_connect();
-  } else if(node_state == NODE_STATE_DRAINING) {
+  } else if (node_state == NODE_STATE_DRAINING) {
     printf("join called while draining; ignoring\n");
-  } else if(node_state == NODE_STATE_STARTED) {
+  } else if (node_state == NODE_STATE_STARTED) {
     printf("join called while started; ignoring\n");
   }
 
@@ -130,57 +124,56 @@ static void join()
  * zookeeper connection state changes on succesful connection we launch our service with 
  * a call to on_connect
  */
-static void connection_watcher(zhandle_t *zzh, int type, int state, const char *path, void *watcherCtx) 
-{
-  if(state == ZOO_CONNECTED_STATE) {
-     printf("\nZookeeper session estabslished!\n");
-     const clientid_t *id = zoo_client_id(zzh);
-     if(myid.client_id == 0 || myid.client_id != id->client_id) {
-       myid = *id;
-       fprintf(stderr, "Got a new session id: 0x%llx\n", _LL_CAST_ myid.client_id);
-     }
-     pthread_mutex_lock(&connected_lock);
-     connected = 1;      
-     context = watcherCtx;
-     pthread_mutex_unlock(&connected_lock);
+static void connection_watcher(zhandle_t *zzh, int type, int state, const char *path,
+    void *watcherCtx) {
+  if (state == ZOO_CONNECTED_STATE) {
+    printf("\nZookeeper session estabslished!\n");
+    const clientid_t *id = zoo_client_id(zzh);
+    if (myid.client_id == 0 || myid.client_id != id->client_id) {
+      myid = *id;
+      fprintf(stderr, "Got a new session id: 0x%llx\n", _LL_CAST_ myid.client_id);
+    }
+    pthread_mutex_lock(&connected_lock);
+    connected = 1;
+    context = watcherCtx;
+    pthread_mutex_unlock(&connected_lock);
 
-     pthread_mutex_lock(&state_lock);
-     if(node_state != NODE_STATE_SHUTDOWN) {
-       pthread_mutex_unlock(&state_lock);
-       on_connect();
-     } else {
-       printf("This node is shut down. ZK connection re-established, but not relaunching.\n");
-     }
- } else if(state == ZOO_EXPIRED_SESSION_STATE) {
-  printf("Zookeeper session expired\n");
-  pthread_mutex_lock(&connected_lock);
-  connected = 0;      
-  pthread_mutex_unlock(&connected_lock);
-  force_shutdown();
+    pthread_mutex_lock(&state_lock);
+    if (node_state != NODE_STATE_SHUTDOWN) {
+      pthread_mutex_unlock(&state_lock);
+      on_connect();
+    } else {
+      printf("This node is shut down. ZK connection re-established, but not relaunching.\n");
+    }
+  } else if (state == ZOO_EXPIRED_SESSION_STATE) {
+    printf("Zookeeper session expired\n");
+    pthread_mutex_lock(&connected_lock);
+    connected = 0;
+    pthread_mutex_unlock(&connected_lock);
+    force_shutdown();
 
-  // TODO look into whether we need to implement await reconnect
-  //await_reconnect();
- } else  {
-  printf("ZooKeeper session interrupted. Shutting down and awaiting reconnect");
-  pthread_mutex_lock(&connected_lock);
-  connected = 0;      
-  pthread_mutex_unlock(&connected_lock);
+    // TODO look into whether we need to implement await reconnect
+    //await_reconnect();
+  } else {
+    printf("ZooKeeper session interrupted. Shutting down and awaiting reconnect");
+    pthread_mutex_lock(&connected_lock);
+    connected = 0;
+    pthread_mutex_unlock(&connected_lock);
 
-  // TODO look into whether we need to implement await reconnect
-  //await_reconnect();
-  //await_reconnect();
- }
+    // TODO look into whether we need to implement await reconnect
+    //await_reconnect();
+    //await_reconnect();
+  }
 }
 
-static void on_connect() 
-{
+static void on_connect() {
   pthread_mutex_lock(&state_lock);
-  if(node_state != NODE_STATE_FRESH) {
-    if(is_previous_zk_active()) {
+  if (node_state != NODE_STATE_FRESH) {
+    if (is_previous_zk_active()) {
       //TODO implementation
     } else {
-       printf("Rejoined after session timeout. Forcing shutdown and clean startup.\n");
-       ensure_clean_startup();
+      printf("Rejoined after session timeout. Forcing shutdown and clean startup.\n");
+      ensure_clean_startup();
     }
   }
   pthread_mutex_unlock(&state_lock);
@@ -193,12 +186,12 @@ static void on_connect()
   cluster_listener->on_join(zh);
 
   pthread_mutex_lock(&watches_registered_lock);
-  if(watches_registered == 0) {
+  if (watches_registered == 0) {
     watches_registered = 1;
   }
-  pthread_mutex_unlock(&watches_registered_lock);
   register_watchers();
-  
+  pthread_mutex_unlock(&watches_registered_lock);
+
   pthread_mutex_lock(&initialized_lock);
   initialized = 1;
   pthread_mutex_unlock(&initialized_lock);
@@ -210,14 +203,13 @@ static void on_connect()
 
 }
 
-void set_node_state(char * state) 
-{
-  char *new_node_state = malloc(snprintf(NULL, 0, "{\"state\": \"%s\", \"connectionID\": %lu}", 
-        state, myid.client_id) + 1);
+void set_node_state(char * state) {
+  char *new_node_state = malloc(
+      snprintf(NULL, 0, "{\"state\": \"%s\", \"connectionID\": %lu}", state, myid.client_id) + 1);
   sprintf(new_node_state, "{\"state\": \"%s\", \"connectionID\": %lu}", state, myid.client_id);
-  
+
   char *node_name = cluster->name;
-  
+
   char path_buffer[1024];
   strcpy(path_buffer, "/");
   strcat(path_buffer, node_name);
@@ -227,79 +219,72 @@ void set_node_state(char * state)
   int zoo_set_ret_val = zoo_set(zh, path_buffer, new_node_state, strlen(new_node_state), -1);
 }
 
-void nodes_watcher(zhandle_t *zzh, int type, int state, const char *path, void* context)
-{
+void nodes_watcher(zhandle_t *zzh, int type, int state, const char *path, void* context) {
   pthread_mutex_lock(&initialized_lock);
-  if(initialized == 0) {
+  if (initialized == 0) {
     pthread_mutex_unlock(&initialized_lock);
     return;
   }
 
   pthread_mutex_unlock(&initialized_lock);
 
-  struct String_vector str;                                            
-  int rc;                                                              
-       
-  printf("The event path %s, event type %d\n", path, type);
-  if (type == ZOO_SESSION_EVENT) {                         
-    if (state == ZOO_CONNECTED_STATE) {                  
-    return;                                          
-    } else if (state == ZOO_AUTH_FAILED_STATE) {         
-      zookeeper_close(zzh);                            
-      exit(1);                                         
-    } else if (state == ZOO_EXPIRED_SESSION_STATE) {     
-      zookeeper_close(zzh);                            
-      exit(1);                                         
-    }                                                    
-  }                                                        
+  struct String_vector str;
+  int rc;
 
-  rc = zoo_wget_children(zh, path, nodes_watcher, context, &str);                
-  if (ZOK != rc){                                          
-    printf("Problems  %d\n", rc);                        
-  } else {                                                 
-    int i = 0;                                           
-    while (i < str.count) {                              
-      printf("Children %s\n", str.data[i++]);          
-    }                                                    
+  printf("The event path %s, event type %d\n", path, type);
+  if (type == ZOO_SESSION_EVENT) {
+    if (state == ZOO_CONNECTED_STATE) {
+      return;
+    } else if (state == ZOO_AUTH_FAILED_STATE) {
+      zookeeper_close(zzh);
+      exit(1);
+    } else if (state == ZOO_EXPIRED_SESSION_STATE) {
+      zookeeper_close(zzh);
+      exit(1);
+    }
+  }
+
+  rc = zoo_wget_children(zh, path, nodes_watcher, context, &str);
+  if (ZOK != rc) {
+    printf("Problems  %d\n", rc);
+  } else {
+    int i = 0;
+    while (i < str.count) {
+      printf("Children %s\n", str.data[i++]);
+    }
 
     //
     // Add a new item to the queue to start processing
     struct queue_head *item = malloc(sizeof(struct queue_head));
     queue_put(item, queue);
 
-    if (str.count) {                                     
-      deallocate_String_vector(&str);                  
-    }                                                    
-  }                         
+    if (str.count) {
+      deallocate_String_vector(&str);
+    }
+  }
 }
 
-void verify_integrity_watcher(void *watcherCtx, stat_completion_t completion, const void *data)
-{
-
-}
-
-void handoff_results_watcher(void *watcherCtx, stat_completion_t completion, const void *data)
-{
+void verify_integrity_watcher(void *watcherCtx, stat_completion_t completion, const void *data) {
 
 }
 
-static void register_watchers() 
-{
+void handoff_results_watcher(void *watcherCtx, stat_completion_t completion, const void *data) {
+
+}
+
+static void register_watchers() {
   char *nodes_path = malloc(snprintf(NULL, 0, "%s%s%s", "/", cluster->name, "/nodes") + 1);
   sprintf(nodes_path, "%s%s%s", "/", cluster->name, "/nodes");
 
-  struct String_vector nodes; 
+  struct String_vector nodes;
 
-  int nodes_ret_val = zoo_wget_children(zh, nodes_path, 
-      nodes_watcher, context, &nodes);
+  int nodes_ret_val = zoo_wget_children(zh, nodes_path, nodes_watcher, context, &nodes);
 
-  
   int i = 0;
-  while (i < nodes.count) {                              
-    printf("kids are %s\n", nodes.data[i]);          
-
+  while (i < nodes.count) {
+    printf("kids are %s\n", nodes.data[i]);
     char *node = nodes.data[i];
-    struct String_vector node_info; 
+    struct String_vector node_info;
 
     char *full_node_path = malloc(snprintf(NULL, 0, "%s%s%s", nodes_path, "/", node) + 1);
     sprintf(full_node_path, "%s%s%s", nodes_path, "/", node);
@@ -322,9 +307,9 @@ static void register_watchers()
 
     jsmntok_t tokens[256];
     int r = jsmn_parse(&parser, &buffer, tokens, 256);
-    if(r != JSMN_SUCCESS) {
+    if (r != JSMN_SUCCESS) {
       printf("error parsing node");
-    } else { 
+    } else {
 
       int start = tokens[2].start;
       int end = tokens[2].end;
@@ -336,89 +321,88 @@ static void register_watchers()
       char *connectionID = substring(start, end, &buffer);
       printf("connectionID is %s\n", connectionID);
 
-      NodeInfo * node_info = (NodeInfo *) malloc(sizeof(const NodeInfo *));   
-      node_info->state = state;
+      NodeInfo * node_info = (NodeInfo *) malloc(sizeof(struct NodeInfo));
+      node_info->state = strdup(state);
       node_info->connection_id = connectionID;
 
       printf("node is: %s\n", node);
 
-      hashtable_insert(nodes_table, node, node_info);
+      struct key * k = (struct key *) malloc(sizeof(struct key));
+      k->key = node;
+
+      printf("about to insert\n");
+      hashtable_insert(nodes_table, k, node_info);
 
       printf("insert done\n");
 
     }
-    //int x = 0;
-    //while(x < node_info.count) {
-    //  printf("node_info is %s\n", node_info.data[x++]);
-   // }
+    int x = 0;
+    while (x < node_info.count) {
+      printf("node_info is %s\n", node_info.data[x++]);
+    }
 
-  }                                                    
+  }
 
-  if (nodes.count) {                                     
-    deallocate_String_vector(&nodes);                  
-  }                                                    
+  if (nodes.count) {
+    deallocate_String_vector(&nodes);
+  }
 
   free(nodes_path);
 
-  char *work_unit_name_path = malloc(snprintf(NULL, 0, "%s%s", "/", cluster_config->work_unit_name) + 1);
+  char *work_unit_name_path = malloc(
+      snprintf(NULL, 0, "%s%s", "/", cluster_config->work_unit_name) + 1);
   sprintf(work_unit_name_path, "%s%s", "/", cluster_config->work_unit_name);
 
-  int work_unit_ret_val = zoo_wget_children(zh, work_unit_name_path,
-      verify_integrity_watcher, NULL,
+  int work_unit_ret_val = zoo_wget_children(zh, work_unit_name_path, verify_integrity_watcher, NULL,
       (struct String_vector *) malloc(sizeof(struct String_vector)));
 
   free(work_unit_name_path);
-    
-  char *claimed_work_unit_path = malloc(snprintf(NULL, 0, "%s%s%s%s", "/", cluster->name, "/claimed-",
-  cluster_config->work_unit_short_name) + 1); 
 
-  sprintf(claimed_work_unit_path, "%s%s%s%s", "/", cluster->name, "/claimed-", cluster_config->
-  work_unit_short_name); 
+  char *claimed_work_unit_path = malloc(
+      snprintf(NULL, 0, "%s%s%s%s", "/", cluster->name, "/claimed-",
+          cluster_config->work_unit_short_name) + 1);
 
-  work_unit_ret_val = zoo_wget_children(zh, claimed_work_unit_path, 
-      verify_integrity_watcher, NULL, 
+  sprintf(claimed_work_unit_path, "%s%s%s%s", "/", cluster->name, "/claimed-",
+      cluster_config->work_unit_short_name);
+
+  work_unit_ret_val = zoo_wget_children(zh, claimed_work_unit_path, verify_integrity_watcher, NULL,
       (struct String_vector *) malloc(sizeof(struct String_vector)));
 
   free(claimed_work_unit_path);
 
-  if(cluster_config->use_soft_handoff == TRUE) {
+  if (cluster_config->use_soft_handoff == TRUE) {
 
-    char *handoff_requests_path = malloc(snprintf(NULL, 0, "%s%s%s", "/", 
-          cluster->name, "/handoff-requests") + 1);
+    char *handoff_requests_path = malloc(
+        snprintf(NULL, 0, "%s%s%s", "/", cluster->name, "/handoff-requests") + 1);
     sprintf(handoff_requests_path, "%s%s%s", "/", cluster->name, "/handoff-requests");
 
-    int hand_off_ret_val = zoo_wget_children(zh, handoff_requests_path,
-      verify_integrity_watcher, NULL, 
-      (struct String_vector *) malloc(sizeof(struct String_vector)));
+    int hand_off_ret_val = zoo_wget_children(zh, handoff_requests_path, verify_integrity_watcher,
+        NULL, (struct String_vector *) malloc(sizeof(struct String_vector)));
 
     free(handoff_requests_path);
 
-    
-    char *handoff_result_path = malloc(snprintf(NULL, 0, "%s%s%s", "/", cluster->name, "/handoff-result") + 1);
+    char *handoff_result_path = malloc(
+        snprintf(NULL, 0, "%s%s%s", "/", cluster->name, "/handoff-result") + 1);
     snprintf(handoff_result_path, "%s%s%s", "/", cluster->name, "/handoff-result");
 
-    hand_off_ret_val = zoo_wget_children(zh, handoff_result_path, 
-      handoff_results_watcher, NULL, 
-      (struct String_vector *) malloc(sizeof(struct String_vector)));
+    hand_off_ret_val = zoo_wget_children(zh, handoff_result_path, handoff_results_watcher, NULL,
+        (struct String_vector *) malloc(sizeof(struct String_vector)));
 
     free(handoff_result_path);
 
   }
 
-  if(cluster_config->use_smart_balancing == TRUE) {
+  if (cluster_config->use_smart_balancing == TRUE) {
     //TODO impl smart balancing ?
   }
 
-
 }
 
-static void join_cluster() 
-{
+static void join_cluster() {
 
   const int n = snprintf(NULL, 0, "%lu", myid.client_id);
-  char buf[n+1];
-  snprintf(buf, n+1, "%lu", myid.client_id);
-
+  char buf[n + 1];
+  snprintf(buf, n + 1, "%lu", myid.client_id);
 
   //TODO Refcator this out with set_node_state
 
@@ -438,10 +422,10 @@ static void join_cluster()
   strcat(path_buffer, "/nodes/");
   strncat(path_buffer, cluster_config->node_id, strlen(cluster_config->node_id));
 
-  while(TRUE) {
-    int zoo_create_ret_val = zoo_create(zh, path_buffer, buffer, sizeof(buffer), 
+  while (TRUE) {
+    int zoo_create_ret_val = zoo_create(zh, path_buffer, buffer, sizeof(buffer),
         &ZOO_OPEN_ACL_UNSAFE, ZOO_EPHEMERAL, NULL, 0);
-    if(zoo_create_ret_val == 0) {
+    if (zoo_create_ret_val == 0) {
       return;
     } else {
       printf("Unable to register with Zookeeper on launch. \n");
@@ -468,7 +452,7 @@ static void ensure_ordacity_paths() {
 
   strcat(buffer, "/nodes");
 
-  ensure_path(&buffer); 
+  ensure_path(&buffer);
 
   // - /<name>/meta
 
@@ -482,7 +466,7 @@ static void ensure_ordacity_paths() {
   strcat(buffer, "/rebalance");
 
   ensure_path(&buffer);
-  
+
   memset(buffer, 0, 1024);
   strcpy(buffer, root_path);
   strcat(buffer, root);
@@ -515,23 +499,21 @@ static void ensure_ordacity_paths() {
 
 static void ensure_path(char *path) {
 
-  if(zoo_exists(zh, path, 0, NULL) == ZNONODE) {
-    zoo_create(zh, path, "", 1, &ZOO_OPEN_ACL_UNSAFE, 0,
-    NULL, 0);
+  if (zoo_exists(zh, path, 0, NULL ) == ZNONODE) {
+    zoo_create(zh, path, "", 1, &ZOO_OPEN_ACL_UNSAFE, 0, NULL, 0);
   }
 }
 
+static void ensure_clean_startup() {
+}
 
-static void ensure_clean_startup() {}
-
-static int is_previous_zk_active() 
-{
+static int is_previous_zk_active() {
   char nodeName[1024];
   strcat(nodeName, cluster->name);
   strcat(nodeName, "/nodes/");
   strcat(nodeName, cluster_config->node_id);
   printf("nodeName is: %s\n", nodeName);
-  zoo_aget(zh, nodeName, 0, my_data_completion, nodeName); 
+  zoo_aget(zh, nodeName, 0, my_data_completion, nodeName);
   return 0;
 }
 
@@ -540,18 +522,17 @@ static int is_previous_zk_active()
  * start claimer and connect to zookeeper. If claimer fails
  * to start exit with ERROR_STARTING_CLAIMER
  */
-static void cluster_connect() 
-{
+static void cluster_connect() {
 
   pthread_mutex_lock(&initialized_lock);
-  if(initialized == 0) { //Not initialized
+  if (initialized == 0) { //Not initialized
     printf("Connecting to hosts %s\n", cluster_config->hosts);
 
     // Exit if unable to start claimer
-    if(start_claimer() != 0) 
+    if (start_claimer() != 0)
       exit(ERROR_STARTING_CLAIMER);
 
-    zh = zookeeper_init(cluster_config->hosts, connection_watcher, 30000,0, 0, 0);
+    zh = zookeeper_init(cluster_config->hosts, connection_watcher, 30000, 0, 0, 0);
   }
   pthread_mutex_unlock(&initialized_lock);
 }
@@ -560,10 +541,10 @@ static void cluster_connect()
  * start our claimer thread
  */
 static int start_claimer() {
-   int err = pthread_create(&claimer_thread, NULL, claim_run, NULL);
-   if (err != 0)
+  int err = pthread_create(&claimer_thread, NULL, claim_run, NULL );
+  if (err != 0)
     printf("\ncan't create thread :[%d]", err);
-   return err;
+  return err;
 }
 
 /**
@@ -572,17 +553,17 @@ static int start_claimer() {
 static void *claim_run() {
   printf("Claimer started\n");
   pthread_mutex_lock(&state_lock);
-  while(node_state != NODE_STATE_SHUTDOWN) {
+  while (node_state != NODE_STATE_SHUTDOWN) {
     struct queue_head *item = queue_get(queue);
     printf("item is %s\n", item);
-    if(item != NULL) {
+    if (item != NULL ) {
       printf("calling claim work");
       claim_work();
     }
     sleep(2);
   }
   pthread_mutex_unlock(&state_lock);
-  return NULL;
+  return NULL ;
 }
 
 /**
@@ -592,7 +573,7 @@ static void *claim_run() {
 static void claim_work() {
   pthread_mutex_lock(&state_lock);
   pthread_mutex_lock(&connected_lock);
-  if(node_state != NODE_STATE_STARTED || connected != 1) {
+  if (node_state != NODE_STATE_STARTED || connected != 1) {
     pthread_mutex_unlock(&state_lock);
     pthread_mutex_unlock(&connected_lock);
     return;
@@ -603,7 +584,6 @@ static void claim_work() {
   printf("about to check workunit size\n");
   printf("my_work_units size is: %d\n", my_work_units->size(my_work_units));
 }
-
 
 /**
  * force_shutdown - handle cleaning up of balancing policy and workunit and free resources 
@@ -617,64 +597,57 @@ static void force_shutdown() {
   // cleanup local recources and exit
 }
 
-void my_strings_completion(int rc, const struct String_vector *strings,
-            const void *data) {
+void my_strings_completion(int rc, const struct String_vector *strings, const void *data) {
 
   if (strings) {
-    for (int i=0; i < strings->count; i++) {
+    for (int i = 0; i < strings->count; i++) {
       fprintf(stderr, "\t%s\n", strings->data[i]);
-    }   
-    free((void*)data);
+    }
+    free((void*) data);
   }
 }
 
-void my_data_completion(int rc, const char *value, int value_len,
-  const struct Stat *stat, const void *data) {
-  if (value) 
-  {
+void my_data_completion(int rc, const char *value, int value_len, const struct Stat *stat,
+    const void *data) {
+  if (value) {
     fprintf(stderr, " value_len = %d\n", value_len);
   }
   fprintf(stderr, "\nStat:\n");
-  free((void*)data);
+  free((void*) data);
 }
 
 void my_stat_completion(int rc, const struct Stat *stat, const void *data) {
-  fprintf(stderr, "%s: rc = %d Stat:\n", (char*)data, rc);
+  fprintf(stderr, "%s: rc = %d Stat:\n", (char*) data, rc);
 }
 
-static unsigned int node_hash(void *str)
-{
+static unsigned int node_hash(void *str) {
   unsigned int hash = 5381;
   int c;
-  const char* cstr = (const char*)str;
+  const char* cstr = (const char*) str;
   while ((c = *cstr++))
     hash = ((hash << 5) + hash) + c; /* hash * 33 + c */
 
   return hash;
 }
 
-static int string_equal(void *key1,void *key2)
-{
-  return strcmp((const char*)key1,(const char*)key2)==0;
+static int string_equal(void *key1, void *key2) {
+  return strcmp((const char*) key1, (const char*) key2) == 0;
 }
 
-
-static int node_info_equal(void *node_info1,void *node_info2)
-{
+static int node_info_equal(void *node_info1, void *node_info2) {
   struct NodeInfo * node1 = (struct NodeInfo *) node_info1;
   struct NodeInfo * node2 = (struct NodeInfo *) node_info2;
-  return strcmp(node1->state,node2->state) ==0 &&
-    strcmp(node1->connection_id,node2->connection_id) == 0;
+  return strcmp(node1->state, node2->state) == 0
+      && strcmp(node1->connection_id, node2->connection_id) == 0;
 }
 
 static char *substring(int start, int end, char* buffer) {
-  
+
   char *string = malloc((end - start) + 1);
   char *s = string;
   char *p = buffer;
   p = p + start;
-  while(start < end)
-  {
+  while (start < end) {
     *s++ = *p++;
     start++;
   }

@@ -19,6 +19,14 @@ typedef struct Cluster {
 //    void (*rebalance)();
 } Cluster;
 
+typedef struct key {
+  char *key;
+} key;
+
+typedef struct value {
+  char *value;
+}value;
+
 Cluster *create_cluster(const char *name, ClusterListener *cluster_listener, ClusterConfig* config);
 
 /**
