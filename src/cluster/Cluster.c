@@ -7,6 +7,8 @@
 #include "../jsmn/jsmn.h"
 #include "Cluster.h"
 #include "NodeInfo.h"
+#include "WorkUnit.h"
+
 
 /**
  * Lock for our node_state, initialization state and Zookeeper connection state
@@ -35,6 +37,7 @@ static clientid_t myid;
 
 // Cluster, node and work unit state
 struct hashtable *nodes_table;
+struct hashtable *all_work_units;
 
 StringSet *my_work_units;
 
@@ -56,6 +59,7 @@ Cluster *create_cluster(const char *name, ClusterListener *listener, ClusterConf
   cluster_config = config;
   cluster_listener = listener;
 
+  // Initialize mutexes
   if (pthread_mutex_init(&state_lock, NULL ) != 0) {
     printf("\n mutex init failed\n");
     return NULL ;
@@ -80,7 +84,10 @@ Cluster *create_cluster(const char *name, ClusterListener *listener, ClusterConf
   struct queue_head *item = malloc(sizeof(struct queue_head));
   INIT_QUEUE_HEAD(item);
 
+  //Initialize our Hashtables
   nodes_table = create_hashtable(32, node_hash, string_equal);
+  all_work_units = create_hashtable(32, node_hash, string_equal);
+
   my_work_units = create_string_set();
   my_work_units->add(my_work_units, "foo");
   my_work_units->add(my_work_units, "fa");
@@ -261,7 +268,6 @@ void nodes_dir_watcher(zhandle_t *zzh, int type, int state, const char *path, vo
       printf("Children %s\n", str.data[i++]);
     }
 
-    //
     // Add a new item to the queue to start processing
     struct queue_head *item = malloc(sizeof(struct queue_head));
     queue_put(item, queue);
@@ -272,7 +278,22 @@ void nodes_dir_watcher(zhandle_t *zzh, int type, int state, const char *path, vo
   }
 }
 
-void verify_integrity_watcher(void *watcherCtx, stat_completion_t completion, const void *data) {
+void verify_integrity_watcher(zhandle_t *zzh, int type, int state, const char *path, void* context) {
+  DEBUG_PRINT(("in verify integrety watcher"));
+
+  char buffer[1024];
+  memset(buffer, 0, 1024);
+
+  int buflen = sizeof(buffer);
+  struct Stat stat;
+
+  DEBUG_PRINT(("full_unit_path is: %s\n", path));
+
+  struct String_vector available_work_units;
+
+  int work_unit_ret_val = zoo_wget_children(zh, path, verify_integrity_watcher,
+      context, &available_work_units);
+
 
 }
 
@@ -286,7 +307,13 @@ static void register_watchers() {
 
   struct String_vector nodes;
   int nodes_ret_val = zoo_wget_children(zh, nodes_path, nodes_dir_watcher, context, &nodes);
-  register_node_change_watchers(nodes, nodes_path);
+
+  if (nodes_ret_val != ZOK) {
+    printf("error fetching children in register_watchers for: %s\n", nodes_path);
+    exit(ERROR_WATCHING_NODES);
+  } else {
+    register_node_change_watchers(nodes, nodes_path);
+  }
 
   // free nodes if any results were returned
   if (nodes.count)
@@ -296,8 +323,20 @@ static void register_watchers() {
       snprintf(NULL, 0, "%s%s", "/", cluster_config->work_unit_name) + 1);
   sprintf(work_unit_name_path, "%s%s", "/", cluster_config->work_unit_name);
 
-  int work_unit_ret_val = zoo_wget_children(zh, work_unit_name_path, verify_integrity_watcher, NULL,
-      (struct String_vector *) malloc(sizeof(struct String_vector)));
+  DEBUG_PRINT(("work_unit_name_path is: %s\n", work_unit_name_path));
+  struct String_vector available_work_units;
+  int work_unit_ret_val = zoo_wget_children(zh, work_unit_name_path, verify_integrity_watcher,
+      context, &available_work_units);
+
+  if (work_unit_ret_val != ZOK) {
+    printf("error fetching children in register_watchers for: %s\n", work_unit_name_path);
+    exit(ERROR_WATCHING_UNITS);
+  } else {
+    register_work_unit_watchers(available_work_units, work_unit_name_path);
+  }
+
+  if (available_work_units.count)
+    deallocate_String_vector(&available_work_units);
 
   free(work_unit_name_path);
 
@@ -338,11 +377,82 @@ static void register_watchers() {
   if (cluster_config->use_smart_balancing == TRUE) {
     //TODO impl smart balancing ?
   }
-
 }
 
-static void node_watcher(zhandle_t *zzh, int type, int state, const char *path, void* context) {
-  printf("path changed is: %s\n", path);
+static void get_and_register_unit_watcher(zhandle_t *zzh, int type, int state, const char *path,
+    char* context) {
+
+  printf("type is %d\n", type);
+}
+
+static void register_work_unit_watchers(struct String_vector units, char * units_path) {
+  int i = 0;
+  while (i < units.count) {
+
+    DEBUG_PRINT(("child of %s is %s\n", units_path, units.data[i]));
+
+    char *unit = units.data[i];
+    struct String_vector unit_info;
+
+    char *full_unit_path = malloc(snprintf(NULL, 0, "%s%s%s", units_path, "/", unit) + 1);
+    sprintf(full_unit_path, "%s%s%s", units_path, "/", unit);
+
+    char buffer[1024];
+    memset(buffer, 0, 1024);
+
+    int buflen = sizeof(buffer);
+    struct Stat stat;
+
+    DEBUG_PRINT(("full_unit_path is: %s\n", full_unit_path));
+    int get_code = zoo_wget(zh, full_unit_path, get_and_register_unit_watcher, unit, buffer,
+        &buflen, &stat);
+
+    struct key * work_unit_key = (struct key *) malloc(sizeof(struct key));
+    work_unit_key->key = unit;
+
+    // trololololo
+    hashtable_insert(all_work_units, work_unit_key, work_unit_key);
+    key * res = hashtable_search(all_work_units, work_unit_key);
+
+    i++;
+  }
+}
+
+
+/**
+ * get_and_register_node_watcher and register_node_change_watchers should be refactored
+ */
+static void get_and_register_node_watcher(zhandle_t *zzh, int type, int state, const char *path,
+    char* context) {
+
+  char buffer[1024];
+  memset(buffer, 0, 1024);
+
+  int buflen = sizeof(buffer);
+  struct Stat stat;
+
+  //int get_code = zoo_get(zh, full_node_path, 0, buffer, &buflen, &stat);
+  int get_code = zoo_wget(zh, path, get_and_register_node_watcher, context, buffer, &buflen, &stat);
+
+  if (get_code != ZOK) {
+    printf("error fetching contents of znode: %s", path);
+    DEBUG_PRINT(("get code is %d\n", get_code));
+    DEBUG_PRINT(("result is %s\n", buffer));
+  }
+
+  jsmn_parser parser;
+  jsmn_init(&parser);
+  jsmntok_t tokens[256];
+  if (jsmn_parse(&parser, &buffer, tokens, 256) != JSMN_SUCCESS) {
+    printf("error parsing JSON for ordasity node");
+  } else {
+    NodeInfo * node_info = get_node_info(tokens, buffer);
+    struct key * node_info_key = (struct key *) malloc(sizeof(struct key));
+    node_info_key->key = context;
+    hashtable_insert(nodes_table, node_info_key, node_info);
+    NodeInfo *res = hashtable_search(nodes_table, node_info_key);
+    printf("res->state is now: %s\n", res->state);
+  }
 }
 
 static void register_node_change_watchers(struct String_vector nodes, char * nodes_path) {
@@ -363,8 +473,8 @@ static void register_node_change_watchers(struct String_vector nodes, char * nod
     int buflen = sizeof(buffer);
     struct Stat stat;
 
-    //int get_code = zoo_get(zh, full_node_path, 0, buffer, &buflen, &stat);
-    int get_code = zoo_wget(zh, full_node_path, node_watcher, NULL, buffer, &buflen, &stat);
+    int get_code = zoo_wget(zh, full_node_path, get_and_register_node_watcher, node, buffer,
+        &buflen, &stat);
 
     if (get_code != ZOK) {
       printf("error fetching contents of znode: %s", full_node_path);
@@ -383,6 +493,7 @@ static void register_node_change_watchers(struct String_vector nodes, char * nod
       node_info_key->key = node;
       hashtable_insert(nodes_table, node_info_key, node_info);
       NodeInfo *res = hashtable_search(nodes_table, node_info_key);
+      printf("res->state is now: %s\n", res->state);
     }
     i++;
   }
@@ -440,6 +551,14 @@ static void ensure_ordacity_paths() {
   ensure_path(&buffer);
 
   strcat(buffer, "/nodes");
+
+  ensure_path(&buffer);
+
+  // work units
+  memset(buffer, 0, 1024);
+
+  strcpy(buffer, root_path);
+  strcat(buffer, cluster_config->work_unit_name);
 
   ensure_path(&buffer);
 

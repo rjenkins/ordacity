@@ -17,6 +17,8 @@
 
 // ERROR CODES
 #define ERROR_STARTING_CLAIMER 10
+#define ERROR_WATCHING_NODES 20
+#define ERROR_WATCHING_UNITS 30
 
 typedef struct Cluster {
     const char *name;
@@ -51,6 +53,7 @@ static void force_shutdown();
 static void set_node_state(char *state);
 static void register_watchers();
 static void register_node_change_watchers(struct String_vector nodes, char * nodes_path);
+static void register_work_unit_watchers(struct String_vector units, char * units_path);
 static void on_connect();
 static int is_previous_zk_active();
 static void my_strings_completion(int rc, const struct String_vector *strings,
