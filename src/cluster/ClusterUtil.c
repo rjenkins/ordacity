@@ -14,6 +14,10 @@ unsigned int string_hash(void *str) {
   return hash;
 }
 
+int string_equal(void *key1, void *key2) {
+  return strcmp((const char*) key1, (const char*) key2) == 0;
+}
+
 void ensure_ordacity_paths(zhandle_t *zh, Cluster *cluster, ClusterConfig *cluster_config) {
   char *root_path = "/";
   char *root = cluster->name;

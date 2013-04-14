@@ -37,8 +37,6 @@ static void on_connect();
 static int is_previous_zk_active();
 static void ensure_clean_startup();
 
-static int string_equal(void *key1, void *key2);
-
 /**
  * Lock for our node_state, initialization state and Zookeeper connection state
  */
@@ -718,9 +716,4 @@ static void force_shutdown() {
 // shutdown individual work units
 //
 // cleanup local recources and exit
-}
-
-
-static int string_equal(void *key1, void *key2) {
-  return strcmp((const char*) key1, (const char*) key2) == 0;
 }
