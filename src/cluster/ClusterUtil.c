@@ -2,6 +2,18 @@
 #include "Cluster.h"
 #include "ClusterUtil.h"
 
+static void ensure_path(zhandle_t *zh, char *path);
+
+unsigned int string_hash(void *str) {
+  unsigned int hash = 5381;
+  int c;
+  const char* cstr = (const char*) str;
+  while ((c = *cstr++))
+    hash = ((hash << 5) + hash) + c; /* hash * 33 + c */
+
+  return hash;
+}
+
 void ensure_ordacity_paths(zhandle_t *zh, Cluster *cluster, ClusterConfig *cluster_config) {
   char *root_path = "/";
   char *root = cluster->name;
@@ -74,7 +86,7 @@ void ensure_ordacity_paths(zhandle_t *zh, Cluster *cluster, ClusterConfig *clust
 
 static void ensure_path(zhandle_t *zh, char *path) {
 
-  if (zoo_exists(zh, path, 0, 0x00 ) == ZNONODE) {
+  if (zoo_exists(zh, path, 0, 0x00) == ZNONODE) {
     zoo_create(zh, path, "", 1, &ZOO_OPEN_ACL_UNSAFE, 0, 0x00, 0);
   }
 }

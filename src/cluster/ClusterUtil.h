@@ -8,7 +8,7 @@
 #ifndef CLUSTERUTIL_H_
 #define CLUSTERUTIL_H_
 
+unsigned int string_hash(void *str);
 void ensure_ordacity_paths(zhandle_t *zh, Cluster *cluster, ClusterConfig *cluster_config);
-static void ensure_path(zhandle_t *zh, char *path);
 
 #endif /* CLUSTERUTIL_H_ */

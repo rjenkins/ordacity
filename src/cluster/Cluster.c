@@ -1,8 +1,8 @@
 /*
- * ClusterUtil.h
+ *  Cluster.c
  *
- *  Created on: Apr 14, 2013
- *      Author: rjenkins
+ *  Created on: Feb 18th, 2013
+ *  Author: rjenkins@aceevo.com
  */
 
 #include <stdlib.h>
@@ -37,8 +37,7 @@ static void on_connect();
 static int is_previous_zk_active();
 static void ensure_clean_startup();
 
-static unsigned int node_hash(void *str);
-static int string_equal(void *key1,void *key2);
+static int string_equal(void *key1, void *key2);
 
 /**
  * Lock for our node_state, initialization state and Zookeeper connection state
@@ -47,6 +46,7 @@ pthread_mutex_t state_lock;
 pthread_mutex_t initialized_lock;
 pthread_mutex_t connected_lock;
 pthread_mutex_t watches_registered_lock;
+pthread_mutex_t all_work_units_lock;
 
 pthread_t claimer_thread;
 
@@ -68,6 +68,8 @@ static clientid_t myid;
 // Cluster, node and work unit state
 struct hashtable *nodes_table;
 struct hashtable *all_work_units;
+struct hashtable *handoff_requests;
+struct hashtable *handoff_results;
 
 StringSet *my_work_units;
 
@@ -110,13 +112,18 @@ Cluster *create_cluster(const char *name, ClusterListener *listener, ClusterConf
     return NULL ;
   }
 
+  if (pthread_mutex_init(&all_work_units_lock, NULL ) != 0) {
+    printf("\n mutex init failed\n");
+    return NULL ;
+  }
+
   queue = ALLOC_QUEUE_ROOT();
   struct queue_head *item = malloc(sizeof(struct queue_head));
   INIT_QUEUE_HEAD(item);
 
   //Initialize our Hashtables
-  nodes_table = create_hashtable(32, node_hash, string_equal);
-  all_work_units = create_hashtable(32, node_hash, string_equal);
+  nodes_table = create_hashtable(32, string_hash, string_equal);
+  all_work_units = create_hashtable(32, string_hash, string_equal);
 
   my_work_units = create_string_set();
   my_work_units->add(my_work_units, "foo");
@@ -134,8 +141,8 @@ Cluster *create_cluster(const char *name, ClusterListener *listener, ClusterConf
 
 /**
  *
- * join - our private implementation of join exposed in our cluster struct returned to the user
- * atomically inspects our node_state and calls connect if we're in NODE_STATE_FRESH or 
+ * join - our private implementation of join exposed in our Cluster struct returned to the user.
+ * Inspects our node_state and calls connect if we're in NODE_STATE_FRESH or
  * NODE_STATE_SHUTDOWN otherwise ignores  
  *
  */
@@ -157,8 +164,8 @@ static void join() {
 }
 
 /**
- * Our implemenation of a zookeeper watcher is passed on zookeeper_init and called when
- * zookeeper connection state changes. On a succesful connection we launch our service with
+ * Our implemenation of a Zookeeper watcher is passed on zookeeper_init and called when
+ * Zookeeper connection state changes. On successful connection we launch our service with
  * a call to on_connect
  */
 static void connection_watcher(zhandle_t *zzh, int type, int state, const char *path,
@@ -247,13 +254,19 @@ void set_node_state(char * state) {
 
   char *node_name = cluster->name;
 
-  char path_buffer[1024];
+  //char path_buffer[1024];
+
+  int stringsize = strlen("/") + strlen(node_name)
+      + strlen("/nodes" + strlen(cluster_config->node_id));
+  char path_buffer[stringsize + 1];
+
   strcpy(path_buffer, "/");
   strcat(path_buffer, node_name);
   strcat(path_buffer, "/nodes/");
   strncat(path_buffer, cluster_config->node_id, strlen(cluster_config->node_id));
 
   int zoo_set_ret_val = zoo_set(zh, path_buffer, new_node_state, strlen(new_node_state), -1);
+  free(new_node_state);
 }
 
 /**
@@ -464,8 +477,10 @@ static void register_work_unit_watchers(struct String_vector units, char * units
     work_unit_key->key = unit;
 
     // trololololo
+    pthread_mutex_lock(&all_work_units_lock);
     hashtable_insert(all_work_units, work_unit_key, work_unit_key);
     key * res = hashtable_search(all_work_units, work_unit_key);
+    pthread_mutex_unlock(&all_work_units_lock);
 
     i++;
   }
@@ -636,7 +651,14 @@ static int start_claimer() {
 static void *claim_run() {
   printf("Claimer started\n");
   pthread_mutex_lock(&state_lock);
+  int runs = 0;
   while (node_state != NODE_STATE_SHUTDOWN) {
+    // DEBUG HERE TO FORCE A CLAIM
+    if(runs == 5) {
+      // Add a new item to the queue to start processing
+      struct queue_head *item = malloc(sizeof(struct queue_head));
+      queue_put(item, queue);
+    }
     struct queue_head *item = queue_get(queue);
     DEBUG_PRINT(("checking claim queue, queue_head is %s\n", item));
     if (item != NULL ) {
@@ -644,6 +666,7 @@ static void *claim_run() {
       claim_work();
     }
     sleep(2);
+    runs++;
   }
   pthread_mutex_unlock(&state_lock);
   return NULL ;
@@ -668,30 +691,35 @@ static void claim_work() {
   pthread_mutex_unlock(&connected_lock);
   printf("about to check workunit size\n");
   printf("my_work_units size is: %d\n", my_work_units->size(my_work_units));
+
+  int num_units = my_work_units->size(my_work_units);
+  int total_nodes = hashtable_count(nodes_table);
+
+  // Calculate the number of work units we should attempt to claim
+  pthread_mutex_lock(&all_work_units_lock);
+  int max_to_claim = 0;
+  if (hashtable_count(all_work_units) <= 1)
+    max_to_claim = hashtable_count(all_work_units);
+  else
+    max_to_claim = (int) hashtable_count(all_work_units) / total_nodes;
+
+  DEBUG_PRINT(("max to claim is: %d\n", max_to_claim));
+  pthread_mutex_unlock(&all_work_units_lock);
+
 }
 
 /**
  * force_shutdown - handle cleaning up of balancing policy and workunit and free resources 
  */
 static void force_shutdown() {
-  //TODO
-  // shutdown balancing policy
-  //
-  // shutdown individual work units
-  //
-  // cleanup local recources and exit
+//TODO
+// shutdown balancing policy
+//
+// shutdown individual work units
+//
+// cleanup local recources and exit
 }
 
-
-static unsigned int node_hash(void *str) {
-  unsigned int hash = 5381;
-  int c;
-  const char* cstr = (const char*) str;
-  while ((c = *cstr++))
-    hash = ((hash << 5) + hash) + c; /* hash * 33 + c */
-
-  return hash;
-}
 
 static int string_equal(void *key1, void *key2) {
   return strcmp((const char*) key1, (const char*) key2) == 0;
