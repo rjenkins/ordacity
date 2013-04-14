@@ -6,6 +6,7 @@
 #include "../collection/StringSet.h"
 #include "../jsmn/jsmn.h"
 #include "Cluster.h"
+#include "ClusterUtil.h"
 #include "NodeInfo.h"
 #include "WorkUnit.h"
 
@@ -186,7 +187,7 @@ static void on_connect() {
 
   printf("Connected to Zookeeper (ID: %s).\n", cluster_config->node_id);
 
-  ensure_ordacity_paths();
+  ensure_ordacity_paths(zh, cluster, cluster_config);
 
   join_cluster();
   cluster_listener->on_join(zh);
@@ -393,8 +394,8 @@ static void register_watchers() {
 static void get_and_register_unit_watcher(zhandle_t *zzh, int type, int state, const char *path,
     char* context) {
 
-  if(type == ZOO_DELETED_EVENT) {
-
+  if (type == ZOO_DELETED_EVENT) {
+    //TODO DEAL WITH WORK UNITS DELETED
   }
 }
 
@@ -422,6 +423,12 @@ static void register_work_unit_watchers(struct String_vector units, char * units
     DEBUG_PRINT(("full_unit_path is: %s\n", full_unit_path));
     int get_code = zoo_wget(zh, full_unit_path, get_and_register_unit_watcher, unit, buffer,
         &buflen, &stat);
+
+    if (get_code != ZOK) {
+      printf("error fetching contents of znode: %s", full_unit_path);
+      DEBUG_PRINT(("get code is %d\n", get_code));
+      DEBUG_PRINT(("result is %s\n", buffer));
+    }
 
     struct key * work_unit_key = (struct key *) malloc(sizeof(struct key));
     work_unit_key->key = unit;
@@ -547,83 +554,6 @@ static void join_cluster() {
       printf("Is %s already running on this host? Retrying in 1 second...\n", cluster->name);
       sleep(1);
     }
-  }
-}
-
-static void ensure_ordacity_paths() {
-  char *root_path = "/";
-  char *root = cluster->name;
-
-  char buffer[1024];
-
-  memset(buffer, 0, 1024);
-
-  // TODO - Make this safer dogg
-  // check and add /<name> and /name/nodes
-  strcpy(buffer, root_path);
-  strcat(buffer, root);
-
-  ensure_path(&buffer);
-
-  strcat(buffer, "/nodes");
-
-  ensure_path(&buffer);
-
-  // work units
-  memset(buffer, 0, 1024);
-
-  strcpy(buffer, root_path);
-  strcat(buffer, cluster_config->work_unit_name);
-
-  ensure_path(&buffer);
-
-  // - /<name>/meta
-
-  memset(buffer, 0, 1024);
-  strcpy(buffer, root_path);
-  strcat(buffer, root);
-  strcat(buffer, "/meta");
-
-  ensure_path(&buffer);
-
-  strcat(buffer, "/rebalance");
-
-  ensure_path(&buffer);
-
-  memset(buffer, 0, 1024);
-  strcpy(buffer, root_path);
-  strcat(buffer, root);
-  strcat(buffer, "/meta/workload");
-
-  ensure_path(&buffer);
-
-  memset(buffer, 0, 1024);
-  strcpy(buffer, root_path);
-  strcat(buffer, root);
-  strcat(buffer, "/claimed-");
-  strcat(buffer, cluster_config->work_unit_short_name);
-
-  ensure_path(&buffer);
-
-  memset(buffer, 0, 1024);
-  strcpy(buffer, root_path);
-  strcat(buffer, root);
-  strcat(buffer, "/handoff-requests");
-
-  ensure_path(&buffer);
-
-  memset(buffer, 0, 1024);
-  strcpy(buffer, root_path);
-  strcat(buffer, root);
-  strcat(buffer, "/handoff-result");
-
-  ensure_path(&buffer);
-}
-
-static void ensure_path(char *path) {
-
-  if (zoo_exists(zh, path, 0, NULL ) == ZNONODE) {
-    zoo_create(zh, path, "", 1, &ZOO_OPEN_ACL_UNSAFE, 0, NULL, 0);
   }
 }
 

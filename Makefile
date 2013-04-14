@@ -60,6 +60,7 @@ libordacity_a_LIBADD =
 am__dirstamp = $(am__leading_dot)dirstamp
 am_libordacity_a_OBJECTS = src/cluster/Cluster.$(OBJEXT) \
 	src/cluster/NodeInfo.$(OBJEXT) \
+	src/cluster/ClusterUtil.$(OBJEXT) \
 	src/collection/queue_lock_mutex.$(OBJEXT) \
 	src/collection/StringSet.$(OBJEXT) src/jsmn/jsmn.$(OBJEXT)
 libordacity_a_OBJECTS = $(am_libordacity_a_OBJECTS)
@@ -175,8 +176,8 @@ AUTOMAKE_OPTIONS = foreign
 AM_CFLAGS = --pedantic -Wall -std=c99 -O2 
 AM_LDFLAGS = -lm 
 lib_LIBRARIES = libordacity.a
-libordacity_a_SOURCES = src/cluster/Cluster.c src/cluster/NodeInfo.c src/collection/queue_lock_mutex.c src/collection/StringSet.c src/jsmn/jsmn.c
-include_HEADERS = src/cluster/ClusterConfig.h src/cluster/ClusterListener.h src/jsmn/jsmn.h
+libordacity_a_SOURCES = src/cluster/Cluster.c src/cluster/NodeInfo.c src/cluster/ClusterUtil.c src/collection/queue_lock_mutex.c src/collection/StringSet.c src/jsmn/jsmn.c
+include_HEADERS = src/cluster/ClusterConfig.h src/cluster/ClusterListener.h src/jsmn/jsmn.h src/cluster/ClusterUtil.h
 all: all-am
 
 .SUFFIXES:
@@ -255,6 +256,8 @@ src/cluster/Cluster.$(OBJEXT): src/cluster/$(am__dirstamp) \
 	src/cluster/$(DEPDIR)/$(am__dirstamp)
 src/cluster/NodeInfo.$(OBJEXT): src/cluster/$(am__dirstamp) \
 	src/cluster/$(DEPDIR)/$(am__dirstamp)
+src/cluster/ClusterUtil.$(OBJEXT): src/cluster/$(am__dirstamp) \
+	src/cluster/$(DEPDIR)/$(am__dirstamp)
 src/collection/$(am__dirstamp):
 	@$(MKDIR_P) src/collection
 	@: > src/collection/$(am__dirstamp)
@@ -282,6 +285,7 @@ libordacity.a: $(libordacity_a_OBJECTS) $(libordacity_a_DEPENDENCIES)
 mostlyclean-compile:
 	-rm -f *.$(OBJEXT)
 	-rm -f src/cluster/Cluster.$(OBJEXT)
+	-rm -f src/cluster/ClusterUtil.$(OBJEXT)
 	-rm -f src/cluster/NodeInfo.$(OBJEXT)
 	-rm -f src/collection/StringSet.$(OBJEXT)
 	-rm -f src/collection/queue_lock_mutex.$(OBJEXT)
@@ -291,6 +295,7 @@ distclean-compile:
 	-rm -f *.tab.c
 
 include src/cluster/$(DEPDIR)/Cluster.Po
+include src/cluster/$(DEPDIR)/ClusterUtil.Po
 include src/cluster/$(DEPDIR)/NodeInfo.Po
 include src/collection/$(DEPDIR)/StringSet.Po
 include src/collection/$(DEPDIR)/queue_lock_mutex.Po
