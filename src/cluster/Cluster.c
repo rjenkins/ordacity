@@ -1,3 +1,10 @@
+/*
+ * ClusterUtil.h
+ *
+ *  Created on: Apr 14, 2013
+ *      Author: rjenkins
+ */
+
 #include <stdlib.h>
 #include <pthread.h>
 #include <string.h>
@@ -9,6 +16,29 @@
 #include "ClusterUtil.h"
 #include "NodeInfo.h"
 #include "WorkUnit.h"
+#include "zookeeper.h"
+
+/**
+ * private functions
+ */
+
+static void join();
+static void join_cluster();
+static void cluster_connect();
+static int start_claimer();
+static void * claim_run();
+static void claim_work();
+static void force_shutdown();
+static void set_node_state(char *state);
+static void register_watchers();
+static void register_node_change_watchers(struct String_vector nodes, char * nodes_path);
+static void register_work_unit_watchers(struct String_vector units, char * units_path);
+static void on_connect();
+static int is_previous_zk_active();
+static void ensure_clean_startup();
+
+static unsigned int node_hash(void *str);
+static int string_equal(void *key1,void *key2);
 
 /**
  * Lock for our node_state, initialization state and Zookeeper connection state
@@ -566,7 +596,7 @@ static int is_previous_zk_active() {
   strcat(nodeName, "/nodes/");
   strcat(nodeName, cluster_config->node_id);
   printf("nodeName is: %s\n", nodeName);
-  zoo_aget(zh, nodeName, 0, my_data_completion, nodeName);
+  zoo_aget(zh, nodeName, 0, NULL, nodeName);
   return 0;
 }
 
@@ -652,28 +682,6 @@ static void force_shutdown() {
   // cleanup local recources and exit
 }
 
-void my_strings_completion(int rc, const struct String_vector *strings, const void *data) {
-
-  if (strings) {
-    for (int i = 0; i < strings->count; i++) {
-      fprintf(stderr, "\t%s\n", strings->data[i]);
-    }
-    free((void*) data);
-  }
-}
-
-void my_data_completion(int rc, const char *value, int value_len, const struct Stat *stat,
-    const void *data) {
-  if (value) {
-    fprintf(stderr, " value_len = %d\n", value_len);
-  }
-  fprintf(stderr, "\nStat:\n");
-  free((void*) data);
-}
-
-void my_stat_completion(int rc, const struct Stat *stat, const void *data) {
-  fprintf(stderr, "%s: rc = %d Stat:\n", (char*) data, rc);
-}
 
 static unsigned int node_hash(void *str) {
   unsigned int hash = 5381;
