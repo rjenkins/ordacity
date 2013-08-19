@@ -1,6 +1,8 @@
 #include <zookeeper.h>
 #include "Cluster.h"
 #include "ClusterUtil.h"
+#include "hashtable.h"
+
 
 static void ensure_path(zhandle_t *zh, char *path);
 

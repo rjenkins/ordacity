@@ -9,8 +9,9 @@
 #include <pthread.h>
 #include <string.h>
 #include "hashtable.h"
+#include "hashtable_itr.h"
 #include "../collection/queue.h"
-#include "../collection/StringSet.h"
+#include "../collection/hashset.h"
 #include "../jsmn/jsmn.h"
 #include "Cluster.h"
 #include "ClusterUtil.h"
@@ -40,40 +41,45 @@ static void ensure_clean_startup();
 /**
  * Lock for our node_state, initialization state and Zookeeper connection state
  */
-pthread_mutex_t state_lock;
-pthread_mutex_t initialized_lock;
-pthread_mutex_t connected_lock;
-pthread_mutex_t watches_registered_lock;
-pthread_mutex_t all_work_units_lock;
+static pthread_mutex_t state_lock;
+static pthread_mutex_t initialized_lock;
+static pthread_mutex_t connected_lock;
+static pthread_mutex_t watches_registered_lock;
+static pthread_mutex_t all_work_units_lock;
 
-pthread_t claimer_thread;
+static pthread_t claimer_thread;
 
-int node_state = NODE_STATE_FRESH;
-int initialized = 0;
-int connected = 0;
-int watches_registered = 0;
+static int node_state = NODE_STATE_FRESH;
+static int initialized = 0;
+static int connected = 0;
+static int watches_registered = 0;
 
-ClusterConfig *cluster_config;
-ClusterListener *cluster_listener;
+static ClusterConfig *cluster_config;
+static ClusterListener *cluster_listener;
 
 static zhandle_t *zh;
 struct queue_root *queue;
 
-Cluster *cluster;
+static Cluster *cluster;
 
 static clientid_t myid;
 
 // Cluster, node and work unit state
 struct hashtable *nodes_table;
 struct hashtable *all_work_units;
+struct hashtable *claimed_work_units;
 struct hashtable *handoff_requests;
 struct hashtable *handoff_results;
 
-StringSet *my_work_units;
+static hashset_t my_work_units;
 
-void *context;
+static void *context;
 
 #define _LL_CAST_ (long long)
+
+static void ensure_clean_startup() {
+
+}
 
 /**
  * create_cluster - Our public function for instantiating a new cluster instance
@@ -122,14 +128,11 @@ Cluster *create_cluster(const char *name, ClusterListener *listener, ClusterConf
   //Initialize our Hashtables
   nodes_table = create_hashtable(32, string_hash, string_equal);
   all_work_units = create_hashtable(32, string_hash, string_equal);
+  claimed_work_units = create_hashtable(32, string_hash, string_equal);
+  handoff_requests = create_hashtable(32, string_hash, string_equal);
+  handoff_results = create_hashtable(32, string_hash, string_equal);
 
-  my_work_units = create_string_set();
-  my_work_units->add(my_work_units, "foo");
-  my_work_units->add(my_work_units, "fa");
-  my_work_units->add(my_work_units, "fa");
-  my_work_units->add(my_work_units, "figaro");
-
-  my_work_units->size(my_work_units);
+  my_work_units = hashset_create();
 
   cluster = (Cluster *) malloc(sizeof(const Cluster *));
   cluster->name = name;
@@ -258,6 +261,7 @@ void set_node_state(char * state) {
       + strlen("/nodes" + strlen(cluster_config->node_id));
   char path_buffer[stringsize + 1];
 
+  //TODO - Fix safe copies
   strcpy(path_buffer, "/");
   strcat(path_buffer, node_name);
   strcat(path_buffer, "/nodes/");
@@ -325,27 +329,29 @@ void handoff_results_watcher(void *watcherCtx, stat_completion_t completion, con
 
 void work_units_watcher(zhandle_t *zzh, int type, int state, const char *path, void* context) {
 
-//  printf("in work_units_watcher\n");
-//  printf("type is %d\n", type);
-//  printf("ZOO_CREATED_EVENT is: %d\n", ZOO_CREATED_EVENT);
-//  printf("ZOO_DELETED_EVENT is: %d\n", ZOO_DELETED_EVENT);
-  DEBUG_PRINT(("in verify integrety watcher"));
+  printf("in work_units_watcher\n");
+  printf("type is %d\n", type);
+  printf("ZOO_CREATED_EVENT is: %d\n", ZOO_CREATED_EVENT);
+  printf("ZOO_DELETED_EVENT is: %d\n", ZOO_DELETED_EVENT);
+  printf("ZOO_CHANGED_EVENT is: %d\n", ZOO_CHANGED_EVENT);
+  printf("ZOO_CHILD_EVENT is: %d\n", ZOO_CHILD_EVENT);
+
+
+  DEBUG_PRINT(("in work_units_watcher"));
 
   char buffer[1024];
   memset(buffer, 0, 1024);
-
-  int buflen = sizeof(buffer);
-  struct Stat stat;
 
   DEBUG_PRINT(("full_unit_path is: %s\n", path));
 
   struct String_vector available_work_units;
 
+  /** Reset the watch */
   int work_unit_ret_val = zoo_wget_children(zh, path, work_units_watcher, context,
       &available_work_units);
 
   if (work_unit_ret_val != ZOK) {
-    printf("error fetching children in verify_integrity_watcher for: %s\n", path);
+    printf("error fetching children in work_units_watcher for: %s\n", path);
     exit(ERROR_WATCHING_NODES);
   } else {
     // Iterate through watchers
@@ -372,7 +378,6 @@ static void register_watchers() {
   if (nodes.count)
     deallocate_String_vector(&nodes);
 
-  //
   char *work_unit_name_path = malloc(
       snprintf(NULL, 0, "%s%s", "/", cluster_config->work_unit_name) + 1);
   sprintf(work_unit_name_path, "%s%s", "/", cluster_config->work_unit_name);
@@ -393,14 +398,15 @@ static void register_watchers() {
 
   free(work_unit_name_path);
 
-//  char *claimed_work_unit_path = malloc(
-//      snprintf(NULL, 0, "%s%s%s%s", "/", cluster->name, "/claimed-",
-//          cluster_config->work_unit_short_name) + 1);
-//
-//  sprintf(claimed_work_unit_path, "%s%s%s%s", "/", cluster->name, "/claimed-",
-//      cluster_config->work_unit_short_name);
-//
-//  work_unit_ret_val = zoo_wget_children(zh, claimed_work_unit_path, verify_integrity_watcher, NULL,
+  //TODO - FETCH CLAIMED WORK UNITS
+  char *claimed_work_unit_path = malloc(
+      snprintf(NULL, 0, "%s%s%s%s", "/", cluster->name, "/claimed-",
+          cluster_config->work_unit_short_name) + 1);
+
+  sprintf(claimed_work_unit_path, "%s%s%s%s", "/", cluster->name, "/claimed-",
+      cluster_config->work_unit_short_name);
+
+//  int claimed_work_unit_ret_val = zoo_wget_children(zh, claimed_work_unit_path, verify_integrity_watcher, NULL,
 //      (struct String_vector *) malloc(sizeof(struct String_vector)));
 //
 //  free(claimed_work_unit_path);
@@ -426,15 +432,16 @@ static void register_watchers() {
 //    free(handoff_result_path);
 //
 //  }
-
-  if (cluster_config->use_smart_balancing == TRUE) {
-    //TODO impl smart balancing ?
-  }
+//
+//  if (cluster_config->use_smart_balancing == TRUE) {
+//    //TODO impl smart balancing ?
+//  }
 }
 
 static void get_and_register_unit_watcher(zhandle_t *zzh, int type, int state, const char *path,
     char* context) {
 
+  DEBUG_PRINT(("A UNIT CHANGED"));
   if (type == ZOO_DELETED_EVENT) {
     //TODO DEAL WITH WORK UNITS DELETED
   }
@@ -444,6 +451,19 @@ static void get_and_register_unit_watcher(zhandle_t *zzh, int type, int state, c
  * Retrieve each of the available work units and register a watcher for each unit.
  */
 static void register_work_unit_watchers(struct String_vector units, char * units_path) {
+
+  /**
+   * Check to see if we have any entries in our hashtable, if so free all records, should go
+   * back and look at add support for hashtable_clear()
+   */
+  pthread_mutex_lock(&all_work_units_lock);
+  if(hashtable_count(all_work_units) > 0) {
+    hashtable_destroy(all_work_units, 1);
+    all_work_units = create_hashtable(32, string_hash, string_equal);
+  }
+  pthread_mutex_unlock(&all_work_units_lock);
+
+
   int i = 0;
   while (i < units.count) {
 
@@ -471,17 +491,24 @@ static void register_work_unit_watchers(struct String_vector units, char * units
       DEBUG_PRINT(("result is %s\n", buffer));
     }
 
-    struct key * work_unit_key = (struct key *) malloc(sizeof(struct key));
-    work_unit_key->key = unit;
+    free(full_unit_path);
 
-    // trololololo
+    struct key * work_unit_key = (struct key *) malloc(sizeof(struct key));
+    struct value * work_unit_value = (struct value *) malloc(sizeof(struct value));
+
+    work_unit_key->key = unit; // gets freed from the String_vector
+    work_unit_value->value = strdup(unit);
+
     pthread_mutex_lock(&all_work_units_lock);
-    hashtable_insert(all_work_units, work_unit_key, work_unit_key);
-    key * res = hashtable_search(all_work_units, work_unit_key);
+
+    /* Using the work_unit_key as value, should clean this up perhaps just use a hashset */
+    hashtable_insert(all_work_units, work_unit_key, work_unit_value);
     pthread_mutex_unlock(&all_work_units_lock);
 
     i++;
   }
+
+  DEBUG_PRINT(("all_work_units num items is: %d\n", hashtable_count(all_work_units)));
 }
 
 /**
@@ -514,7 +541,15 @@ static void get_and_register_node_watcher(zhandle_t *zzh, int type, int state, c
     NodeInfo * node_info = get_node_info(tokens, buffer);
     struct key * node_info_key = (struct key *) malloc(sizeof(struct key));
     node_info_key->key = context;
+
+    int total_nodes = hashtable_count(nodes_table);
+    DEBUG_PRINT(("before insert total_nodes: %d\n", total_nodes));
+
     hashtable_insert(nodes_table, node_info_key, node_info);
+    DEBUG_PRINT(("in get_and_register_node_watcher just did an insert into nodes_table\n"));
+    total_nodes = hashtable_count(nodes_table);
+    DEBUG_PRINT(("total_nodes: %d\n", total_nodes));
+
     NodeInfo *res = hashtable_search(nodes_table, node_info_key);
     printf("res->state is now: %s\n", res->state);
   }
@@ -547,19 +582,19 @@ static void register_node_change_watchers(struct String_vector nodes, char * nod
       DEBUG_PRINT(("result is %s\n", buffer));
     }
 
-    jsmn_parser parser;
-    jsmn_init(&parser);
-    jsmntok_t tokens[256];
-    if (jsmn_parse(&parser, &buffer, tokens, 256) != JSMN_SUCCESS) {
-      printf("error parsing JSON for ordasity node");
-    } else {
-      NodeInfo * node_info = get_node_info(tokens, buffer);
-      struct key * node_info_key = (struct key *) malloc(sizeof(struct key));
-      node_info_key->key = node;
-      hashtable_insert(nodes_table, node_info_key, node_info);
-      NodeInfo *res = hashtable_search(nodes_table, node_info_key);
-      printf("res->state is now: %s\n", res->state);
-    }
+//    jsmn_parser parser;
+//    jsmn_init(&parser);
+//    jsmntok_t tokens[256];
+//    if (jsmn_parse(&parser, &buffer, tokens, 256) != JSMN_SUCCESS) {
+//      printf("error parsing JSON for ordasity node");
+//    } else {
+//      NodeInfo * node_info = get_node_info(tokens, buffer);
+//      struct key * node_info_key = (struct key *) malloc(sizeof(struct key));
+//      node_info_key->key = node;
+//      hashtable_insert(nodes_table, node_info_key, node_info);
+//      NodeInfo *res = hashtable_search(nodes_table, node_info_key);
+//      printf("res->state is now: %s\n", res->state);
+//    }
     i++;
   }
   free(nodes_path);
@@ -600,8 +635,6 @@ static void join_cluster() {
   }
 }
 
-static void ensure_clean_startup() {
-}
 
 static int is_previous_zk_active() {
   char nodeName[1024];
@@ -652,7 +685,7 @@ static void *claim_run() {
   int runs = 0;
   while (node_state != NODE_STATE_SHUTDOWN) {
     // DEBUG HERE TO FORCE A CLAIM
-    if(runs == 5) {
+    if (runs == 5) {
       // Add a new item to the queue to start processing
       struct queue_head *item = malloc(sizeof(struct queue_head));
       queue_put(item, queue);
@@ -660,7 +693,7 @@ static void *claim_run() {
     struct queue_head *item = queue_get(queue);
     DEBUG_PRINT(("checking claim queue, queue_head is %s\n", item));
     if (item != NULL ) {
-      DEBUG_PRINT(("calling claim work"));
+      DEBUG_PRINT(("calling claim work\n"));
       claim_work();
     }
     sleep(2);
@@ -670,38 +703,77 @@ static void *claim_run() {
   return NULL ;
 }
 
+static hashset_t key_set(struct hashtable *ht) {
+
+  hashset_t values = hashset_create();
+
+  if(hashtable_count(ht) > 0) {
+    struct hashtable_itr *iter = hashtable_iterator(ht);
+    key *k = ((key *) hashtable_iterator_key(iter));
+
+    while (k != NULL) {
+      hashset_add(values, (void *)k->key);
+      if (hashtable_iterator_advance(iter) == 0) {
+        k = NULL;
+      } else {
+        k = ((key *) hashtable_iterator_key(iter));
+      }
+    }
+  }
+  return values;
+
+}
+
 /**
  * Our logic for claiming work 
  */
 
 static void claim_work() {
+
   DEBUG_PRINT(("in claim_work\n"));
   pthread_mutex_lock(&state_lock);
   pthread_mutex_lock(&connected_lock);
   if (node_state != NODE_STATE_STARTED || connected != 1) {
-    pthread_mutex_unlock(&state_lock);
     pthread_mutex_unlock(&connected_lock);
+    pthread_mutex_unlock(&state_lock);
     DEBUG_PRINT(("in claim_work node not started, exiting\n"));
     return;
   }
 
   pthread_mutex_unlock(&state_lock);
   pthread_mutex_unlock(&connected_lock);
-  printf("about to check workunit size\n");
-  printf("my_work_units size is: %d\n", my_work_units->size(my_work_units));
+  DEBUG_PRINT(("my_work_units size is: %zu\n", hashset_num_items(my_work_units)));
 
-  int num_units = my_work_units->size(my_work_units);
+  int claimed = hashset_num_items(my_work_units);
   int total_nodes = hashtable_count(nodes_table);
+
+  DEBUG_PRINT(("num_units is: %d\n", claimed));
+  DEBUG_PRINT(("total_nodes is: %d\n", total_nodes));
 
   // Calculate the number of work units we should attempt to claim
   pthread_mutex_lock(&all_work_units_lock);
+
   int max_to_claim = 0;
+
+  int all_work_units_count = hashtable_count(all_work_units);
+  DEBUG_PRINT(("all_work_units_count is: %d\n", all_work_units_count));
+
   if (hashtable_count(all_work_units) <= 1)
     max_to_claim = hashtable_count(all_work_units);
   else
     max_to_claim = (int) hashtable_count(all_work_units) / total_nodes;
 
   DEBUG_PRINT(("max to claim is: %d\n", max_to_claim));
+
+  // TO-DO HANDLE HANDOFF REQUESTS
+
+  DEBUG_PRINT(("about to call key_set on all_work_units\n"));
+
+  struct key * work_unit_key = (struct key *) malloc(sizeof(struct key));
+
+  hashset_t all_work_unit_keys = key_set(all_work_units);
+  DEBUG_PRINT(("all_work_unit_keys size %d\n", hashset_num_items(all_work_unit_keys)));
+
   pthread_mutex_unlock(&all_work_units_lock);
 
 }
@@ -717,3 +789,4 @@ static void force_shutdown() {
 //
 // cleanup local recources and exit
 }
+
