@@ -12,6 +12,7 @@
 #include "hashtable_itr.h"
 #include "../collection/queue.h"
 #include "../collection/hashset.h"
+#include "../collection/hashset_itr.h"
 #include "../jsmn/jsmn.h"
 #include "Cluster.h"
 #include "ClusterUtil.h"
@@ -496,7 +497,7 @@ static void register_work_unit_watchers(struct String_vector units, char * units
     struct key * work_unit_key = (struct key *) malloc(sizeof(struct key));
     struct value * work_unit_value = (struct value *) malloc(sizeof(struct value));
 
-    work_unit_key->key = unit; // gets freed from the String_vector
+    work_unit_key->key = strdup(unit); // gets freed from the String_vector
     work_unit_value->value = strdup(unit);
 
     pthread_mutex_lock(&all_work_units_lock);
@@ -712,7 +713,7 @@ static hashset_t key_set(struct hashtable *ht) {
     key *k = ((key *) hashtable_iterator_key(iter));
 
     while (k != NULL) {
-      hashset_add(values, (void *)k->key);
+      hashset_add(values, strdup(k->key));
       if (hashtable_iterator_advance(iter) == 0) {
         k = NULL;
       } else {
@@ -773,6 +774,17 @@ static void claim_work() {
 
   hashset_t all_work_unit_keys = key_set(all_work_units);
   DEBUG_PRINT(("all_work_unit_keys size %d\n", hashset_num_items(all_work_unit_keys)));
+
+  hashset_itr_t all_work_iter = hashset_iterator(all_work_unit_keys);
+
+  int are_there_next = hashset_iterator_has_next(all_work_iter);
+
+  while(hashset_iterator_has_next(all_work_iter)) {
+    char * value = (char *)hashset_iterator_value(all_work_iter);
+    DEBUG_PRINT(("work to claim is %s\n", value));
+    hashset_iterator_next(all_work_iter);
+  }
+
 
   pthread_mutex_unlock(&all_work_units_lock);
 
